@@ -80,15 +80,33 @@ async function checkDataDirectory(userDataPath) {
 
 // 单实例锁：防止多开或子进程误开导致 Dock 图标泛滥
 const gotTheLock = app.requestSingleInstanceLock()
+
+/**
+ * 把已有窗口唤到前台。
+ *
+ * 启动期间 mainWindow 可能还不存在（内核尚未就绪），此时只记一个「待聚焦」标记，
+ * 等窗口建好后补一次，避免用户双击之后毫无反馈。
+ */
+let windowFocusPending = false
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    windowFocusPending = true
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
+}
+
 if (!gotTheLock) {
+  // 抢锁失败 ⇒ 已经有实例在跑（它可能仍在启动中）。本进程必须就此结束。
+  //
+  // 绝对不能继续走 whenReady：那样本进程也会拉起一个内核，与已有实例抢同一个端口、
+  // 抢同一批插件注册，把启动从几秒拖成几十秒（实测第 2 个实例的内核会另占 3181 端口）。
+  // 而「用户以为没反应、于是再双击一次」恰好就会走到这里 —— 越点越慢的正反馈。
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
+  app.on('second-instance', () => focusMainWindow())
 }
 
 // 全局响应渲染层顶栏智能双击事件：安全切换窗口最大化与还原（macOS 原生 Zoom）
@@ -439,20 +457,63 @@ function setupApplicationMenu(win) {
   Menu.setApplicationMenu(menu)
 }
 
+/**
+ * 启动占位页（data: URL，无额外文件）。
+ *
+ * 为什么必须有：装完首次启动是「冷启动」——杀软要实时扫描刚写盘的 400MB+ 产物，
+ * 内核就绪实测可以到 30~40s。改造前这段时间**连窗口都没有**，用户看到的就是
+ * 「双击完全没反应」，于是反复双击；而每次双击又会拉起一个内核抢端口，越点越慢。
+ * 先把窗口亮出来，慢就从「没反应」变成「看得见地在加载」。
+ */
+function startupPageHtml(error) {
+  const esc = (s) =>
+    String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+  const body = error
+    ? `<div class="whale">🐳</div>
+       <div class="name">${esc(APP_NAME)}</div>
+       <div class="err">启动失败</div>
+       <div class="hint">${esc(error)}</div>`
+    : `<div class="whale">🐳</div>
+       <div class="name">${esc(APP_NAME)}</div>
+       <div class="ring"></div>
+       <div class="hint">正在启动本地内核…<br>首次启动需要初始化配置，可能要多等一会儿</div>
+       <div class="elapsed" id="t">已等待 0 秒</div>`
+
+  return `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(APP_NAME)}</title><style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; background: #18181b; color: #e6e6ea; text-align: center;
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; }
+  .whale { font-size: 42px; line-height: 1; animation: bob 2.4s ease-in-out infinite; }
+  .name { font-size: 19px; font-weight: 600; letter-spacing: .3px; }
+  .ring { width: 30px; height: 30px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.14); border-top-color: #4D6BFE;
+    animation: spin .9s linear infinite; }
+  .hint { color: #9b9ba6; font-size: 12.5px; max-width: 440px; }
+  .elapsed { color: #6f6f7c; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .err { color: #ff8a8a; font-size: 15px; font-weight: 600; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+</style></head><body>
+  ${body}
+  <script>
+    var t0 = Date.now(), el = document.getElementById('t');
+    if (el) setInterval(function () {
+      el.textContent = '已等待 ' + Math.round((Date.now() - t0) / 1000) + ' 秒';
+    }, 1000);
+  </script>
+</body></html>`)}`
+}
+
 async function createWindow() {
-  const freePort = await findFreePort(3180)
-
-  serverManager = new ServerManager({
-    port: freePort,
-    isPortable,
-    appDataPath: app.getPath('userData'),
-    runtimePath: app.isPackaged
-      ? join(process.resourcesPath, 'runtime')
-      : join(__dirname, '../../bundle-runtime'),
-  })
-
-  serverUrl = await serverManager.start()
-
+  // ── ① 先建窗口并立刻显示加载态 ─────────────────────────────────────────
+  // 内核启动放到窗口之后（见下方 ②）。这样冷启动的几十秒里用户看到的是一个
+  // 在动的加载页，而不是一片虚无。
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 850,
@@ -493,7 +554,9 @@ async function createWindow() {
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[Electron Window] did-finish-load: URL loaded successfully:', serverUrl)
+    // 注意：启动占位页是超长的 data: URL，别整串打出来
+    const u = mainWindow?.webContents.getURL() || ''
+    console.log('[Electron Window] did-finish-load:', u.startsWith('data:') ? '(启动占位页)' : u)
   })
 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
@@ -504,14 +567,45 @@ async function createWindow() {
     console.log('[Renderer Console]', message)
   })
 
-  mainWindow.loadURL(serverUrl)
-
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+
+  mainWindow.loadURL(startupPageHtml())
+
+  // 启动期间若有第二个实例来敲门（用户以为没反应又点了一次），
+  // 窗口一建好就补一次「显示 + 聚焦」，让那次双击不白点。
+  if (windowFocusPending) {
+    windowFocusPending = false
+    focusMainWindow()
+  }
+
+  // ── ② 再启动内核 ────────────────────────────────────────────────────────
+  // 冷启动（装完首次，杀软扫描新写盘产物）实测可达 30~40s；此时窗口已经亮着，
+  // 用户能看到「已等待 N 秒」在走，而不是面对一片虚无反复双击。
+  const freePort = await findFreePort(3180)
+
+  serverManager = new ServerManager({
+    port: freePort,
+    isPortable,
+    appDataPath: app.getPath('userData'),
+    runtimePath: app.isPackaged
+      ? join(process.resourcesPath, 'runtime')
+      : join(__dirname, '../../bundle-runtime'),
+  })
+
+  serverUrl = await serverManager.start()
+
+  // ── ③ 内核就绪，切到真实地址 ────────────────────────────────────────────
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.loadURL(serverUrl)
 }
 
 app.whenReady().then(async () => {
+  // 抢锁失败的实例到此为止：不许建窗口、更不许启动内核。
+  // 这条闸不能省 —— 实测过「抢锁失败但 whenReady 仍然跑完」的情形。
+  if (!gotTheLock) return
+
   try {
     app.setAboutPanelOptions({
       applicationName: APP_NAME,
@@ -525,6 +619,14 @@ app.whenReady().then(async () => {
     console.error('[DeepSeek Agent Fatal]', err)
     const logPath = serverManager?.logFile || ''
     const dshHome = serverManager?.dshHome || ''
+
+    // 窗口已经亮着（占位页），把失败原因就地写在窗口里，
+    // 免得用户面对一个永远转下去的圈，误以为程序卡死。
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(startupPageHtml(err?.message || String(err)))
+      }
+    } catch {}
 
     const choice = await dialog.showMessageBox({
       type: 'error',
