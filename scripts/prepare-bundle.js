@@ -148,9 +148,74 @@ function cloneAtRef(repo, ref, dest) {
   execSync('git checkout -q FETCH_HEAD', inDest)
 }
 
+/** 判断某个命令是否在 PATH 上（用于 pnpm / npm 二选一）。 */
+function hasCommand(cmd) {
+  try {
+    execSync(process.platform === 'win32' ? `where ${cmd}` : `command -v ${cmd}`, { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * repo 源插件可能只提交源码：构建产物（如 lib/）被 .gitignore 忽略，靠 prepack 脚本
+ * 在 npm 发布时生成，而 git clone **不会**执行 prepack。若不就地构建，后面那道
+ * 「入口文件必须存在」的门禁就会直接抛错（这正是它存在的意义：杜绝空壳包）。
+ *
+ * 策略是「缺什么补什么」，三种情况各自明确：
+ *   1. package.json 声明的入口已存在 → 直接返回。已提交产物的插件（如 dsh-today
+ *      根目录的 index.js、client.js）命中这条，零额外开销；
+ *   2. 入口缺失但声明了 build / prepack 脚本 → 装依赖并就地构建；
+ *   3. 入口缺失且没有任何构建脚本 → 不在此处兜底，交给入口门禁抛出可定位的报错。
+ *
+ * 包管理器优先 pnpm：有 pnpm-lock.yaml / pnpm-workspace.yaml 说明上游用 pnpm，
+ * 尊重其锁文件才能得到可复现的产物。CI 由 release.yml 的 pnpm/action-setup 保证可用。
+ *
+ * --ignore-scripts：只装依赖，不触发依赖的 postinstall；真正的构建在下一步显式执行。
+ * --config.confirmModulesPurge=false（仅 pnpm）：避免非交互环境因复用 node_modules
+ *   卡在确认提示上。
+ */
+function ensureRepoBuilt(dir, entry, origin) {
+  const pkgPath = join(dir, 'package.json')
+  if (!existsSync(pkgPath)) return
+  let pkg
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+  } catch {
+    return
+  }
+  if (pkg.main && existsSync(join(dir, pkg.main))) return
+
+  const buildScript = pkg.scripts?.build ? 'build' : pkg.scripts?.prepack ? 'prepack' : null
+  if (!buildScript) return
+
+  const usePnpm =
+    (existsSync(join(dir, 'pnpm-lock.yaml')) || existsSync(join(dir, 'pnpm-workspace.yaml'))) &&
+    hasCommand('pnpm')
+  const pm = usePnpm ? 'pnpm' : 'npm'
+  const installArgs = usePnpm
+    ? 'install --ignore-scripts --config.confirmModulesPurge=false'
+    : 'install --ignore-scripts --no-audit --no-fund'
+  const opts = { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }
+
+  console.log(`  🔨 构建插件（${origin} 只含源码，缺 ${pkg.main}）: ${entry.name} → ${pm} run ${buildScript}`)
+  try {
+    execSync(`${pm} ${installArgs}`, opts)
+    execSync(`${pm} run ${buildScript}`, opts)
+  } catch (e) {
+    const out = `${e.stdout || ''}${e.stderr || ''}`.trim().split('\n').slice(-12).join('\n')
+    throw new Error(`插件 ${entry.name} 就地构建失败（${pm} run ${buildScript}）:\n${out}`)
+  }
+  if (!existsSync(join(dir, pkg.main))) {
+    throw new Error(`插件 ${entry.name} 构建后仍缺少入口文件 ${pkg.main}，请检查上游的 ${buildScript} 脚本。`)
+  }
+}
+
 console.log('🧩 [2/4] 收纳精选插件与依赖...')
 for (const entry of manifest) {
   const { dir: src, origin } = resolvePluginSource(entry)
+  if (origin.startsWith('public@')) ensureRepoBuilt(src, entry, origin)
   const dest = join(runtimeDir, 'plugins', entry.name)
   mkdirSync(dirname(dest), { recursive: true })
   console.log(`  -> 复制插件: ${entry.name} (${origin})`)

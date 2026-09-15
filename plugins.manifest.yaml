@@ -77,17 +77,22 @@ plugins:
   - name: dsh-cmdj-toggle
     repo: https://github.com/JackAIStudio/dsh-cmdj-toggle.git
     ref: main
-  # 社区开源精选插件（npm 公开发行包，开箱即用预装）
-  - name: "@mlgbnb/dsh-archive-manager"
-    npm: "@mlgbnb/dsh-archive-manager@1.0.7"
-  - name: dsh-codex-timeline
-    npm: "dsh-codex-timeline@0.6.0"
-  - name: "@wxg-prc-cpg/browser-skill-dsh-plugin"
-    npm: "@wxg-prc-cpg/browser-skill-dsh-plugin@0.2.1"
   # 把本机已登录的 WorkBuddy 账号接成 DSH 的 workbuddy / workbuddy-global provider，
   # 附带只读积分概览与模型管理（国内版 + 国际版双区域并行）。
   #
-  # 关于版本：2.0.1 的 peerDependencies 把 DSH 各包写成
+  # 关于来源：原取 npm 公开发行包，现改走 GitHub 仓库源。
+  #   · 仓库为 dingminhua/dsh-connect-workbuddy（MIT，Copyright (c) 2026 LaoDing）。
+  #     注意它**不在** JackAIStudio 组织下，是上游作者的独立仓库，故 url 与上表不同。
+  #   · ref 钉 v2.0.1：与原先的 npm 2.0.1 同源同码。已实测「按该 tag 就地构建出的
+  #     6 个产物文件」与「npm 包内 6 个产物文件」sha256 逐字节一致、构建可复现，
+  #     因此本次只换来源、不换版本，运行时行为不变。
+  #   · 该仓库只提交 TypeScript 源码：lib/ 被 .gitignore 忽略，由 tsdown 在 prepack
+  #     阶段生成，而 git clone 不会执行 prepack。故 prepare-bundle.js 为 repo 源插件
+  #     补了「package.json 声明了入口、但产物缺失时就地构建」的步骤（装依赖 + 跑
+  #     build/prepack）；上游若改为提交 lib/，该步骤自动跳过，零额外开销。
+  #
+  # 关于版本兼容（与来源无关，沿用原先对 2.0.1 的实测记录）：2.0.1 的 peerDependencies
+  # 把 DSH 各包写成
   #   ">=0.1.5-rc.1 <0.2.0 || >=0.1.2-rc.1 <0.2.0"
   # 即已声明兼容本发行版的 0.1.2-rc.1；但它把 @earendil-works/pi-ai 写成
   #   ">=0.85.0 <0.86.0"
@@ -102,6 +107,15 @@ plugins:
   #   · 用真实 pi-ai 0.84.4 按插件的精确入参形态跑过 createProvider 装配，通过。
   # 若上游此后引入 0.85 专有 API，回退方案是钉 1.2.0（其 peer 明写接受
   # >=0.82.1 <0.85.0），代价是丢掉国际版支持（1.4.0 才加入）与 2.0.1 的关键修复。
-  # 治理：prepare-bundle.js 只做 npm pack + 解包，不校验 peer，故上表不影响构建。
+  # 该 peer 不一致不波及本发行版：构建期这些包只服务于 dts 生成，产物把它们列为
+  # externals（neverBundle）不打包，运行期一律由宿主自身的 node_modules 提供。
   - name: dsh-connect-workbuddy
-    npm: "dsh-connect-workbuddy@2.0.1"
+    repo: https://github.com/dingminhua/dsh-connect-workbuddy.git
+    ref: v2.0.1
+  # 社区开源精选插件（npm 公开发行包，开箱即用预装）
+  - name: "@mlgbnb/dsh-archive-manager"
+    npm: "@mlgbnb/dsh-archive-manager@1.0.7"
+  - name: dsh-codex-timeline
+    npm: "dsh-codex-timeline@0.6.0"
+  - name: "@wxg-prc-cpg/browser-skill-dsh-plugin"
+    npm: "@wxg-prc-cpg/browser-skill-dsh-plugin@0.2.1"
