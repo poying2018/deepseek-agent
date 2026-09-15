@@ -1,0 +1,38 @@
+# 依赖安装布局 —— 必须与 .npmrc 保持一致，且**必须生效**。
+#
+# 背景：本项目打出的安装包通过 electron-builder 的 extraResources 把 node_modules
+# 复制进应用，而该 filter **排除了 .pnpm/**。所以根 node_modules 必须是 pnpm 的
+# **hoisted（扁平）布局**；若落成默认的 isolated（软链进 .pnpm）布局，打进包里的
+# node_modules 会只剩一堆指向 .pnpm 的死链，而构建过程**不会报任何错**。
+#
+# .npmrc 里同样写了这两项，但 pnpm 11+ 已把设置项迁到本文件（package.json 的
+# pnpm 字段亦然），实测 pnpm 12.4.1 **不再读取 .npmrc 的这两个键**
+# （`pnpm config get node-linker` 返回 undefined）——本地用 pnpm 11+ 会静默装成
+# 隔离布局。这里显式声明，保证任何 pnpm 版本都能得到与 CI 一致的扁平布局。
+nodeLinker: hoisted
+shamefullyHoist: true
+
+# pnpm 11+ 的构建脚本白名单。
+#
+# pnpm 10 起默认不执行依赖的 postinstall/install 脚本（供应链安全）。
+# 本项目的依赖树里有若干**必须**执行安装脚本来落位预编译二进制的包，
+# 不放行会导致安装以 ERR_PNPM_IGNORED_BUILDS 结束、且原生模块缺少二进制。
+#
+# 这些包都在 pnpm-lock.yaml 锁定的依赖树内（CI 的 pnpm install 等价于全部放行），
+# 逐一登记只是为了让本地用 pnpm 11+ 的开发者得到与 CI 一致的安装结果。
+allowBuilds:
+  # koffi —— DSH 原生目录选择器（dsh-host-directory-picker-native）驱动 COM
+  # IFileOpenDialog 用的 FFI 库。本发行版在 Windows 上固定挂 browse（纯 JS）
+  # 交互，但依赖树里仍会解析到它，装齐二进制可避免任何 import 失败。
+  koffi: true
+  # node-pty —— DSH 终端相关能力使用的伪终端原生模块。
+  node-pty: true
+  # ssh2 + cpu-features —— 桌面端 SSH 隧道（src/main/tunnel-client.js 依赖 ssh2）；
+  # ssh2 本身是纯 JS，cpu-features 是它的可选加速模块（本机无 VS 构建工具时
+  # 其脚本会失败，属预期，ssh2 自动回落纯 JS 实现）。
+  ssh2: true
+  cpu-features: true
+  # 以下三个的安装脚本只做预编译物落位或版本自检，不含源码编译。
+  '@deepseek-ai/dsh-subprocess-local': true
+  '@google/genai': true
+  protobufjs: true

@@ -1,0 +1,321 @@
+diff --git a/README.zh.md b/README.zh.md
+index 9a54eba..0b53fde 100644
+--- a/README.zh.md
++++ b/README.zh.md
+@@ -1,15 +1,17 @@
+ # dsh-workspace-path（工作区中心 & 顶部会话工作区/会话 ID 胶囊）
+ 
+-侧栏底下一颗文件夹图标：一键呼出工作区快速中心；空白会话输入框上的官方工作区选择器也被同一套列表接管。默认只列出你手动加过的**项目**工作区；`days/YYYY-MM-DD` 这种按天草稿纸收在第二步。今天要开新会话，继续点左上角「新会话」。
++侧栏底下一颗文件夹图标：一键呼出工作区快速中心，默认只列出你手动加过的**项目**工作区；`days/YYYY-MM-DD` 这种按天草稿纸收在第二步。今天要开新会话，继续点左上角「新会话」。
++
++> **为什么不再接管空会话里那颗官方工作区芯片**：该槽位（`conversation.hero.workspace`）是 single 类，本插件用更低 priority 抢占后会顶掉官方选择器；而应用内目录浏览器挂在官方注册声明的 `…directoryFlow` 空位里，插件的注册渲染不了它（重复声明会被 slot 表拒绝），「添加工作区」就只剩 native 专用的 `pickDirectory`，在浏览后端/远程宿主上必然失败。官方选择器会按当前后端自行选 OS 对话框或应用内浏览器，因此把该槽位留给了官方，本插件的入口收敛到侧栏工作区中心与顶栏徽章。
+ 
+ ## 功能特性
+ 
+-### 1. 项目优先的工作区选择器（0.4.0）
++### 1. 项目优先的工作区列表（0.4.0）
+ 
+ - **默认只看项目**：JackDSH、JackAICutWeb 这类代码库在第一屏，不再和日期目录混排。
+ - **按天是第二步**：底部 `按天工作区 (N)` 才展开日期列表，今天置顶。
+ - **搜索仍能命中日期**：在项目视图里输入 `09-07` 也能直达那天，不用先切过去。
+-- **两处同一套**：侧栏文件夹中心，以及空白会话里那颗工作区芯片，都走这套分类。
++- **同一套分类**：侧栏工作区中心与顶栏工作区胶囊共用这套分类；空会话里的官方工作区芯片保持官方实现。
+ 
+ ### 2. 顶部 Header 独立会话 ID 芯片与 Popover 浮层
+ 
+diff --git a/client.js b/client.js
+index b4cf729..3d0ad6a 100644
+--- a/client.js
++++ b/client.js
+@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
+   id: 'dsh-workspace-path',
+   factory: (require) => {
+     const module = { exports: {} }, React = require('react'), ReactDOM = require('react-dom'), h = React.createElement
+-    const css = ".dsh-wspath{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center}\n.dsh-wspath-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:50%;padding:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color 120ms ease,color 120ms ease}\n.dsh-wspath-btn:hover,.dsh-wspath-btn.is-open{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-panel{box-sizing:border-box;z-index:80;display:flex;flex-direction:column;width:min(340px,calc(100vw - 16px));max-height:min(440px,calc(100vh - 24px));padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-panel.is-hero{z-index:120}\n.dsh-wspath-search-row{display:flex;align-items:center;gap:6px;margin:0 4px 6px}\n.dsh-wspath-search-row input{flex:1;min-width:0;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}\n.dsh-wspath-search-row input:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}\n.dsh-wspath-add-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer}\n.dsh-wspath-add-btn:hover,.dsh-wspath-add-btn.is-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-new-box{box-sizing:border-box;display:flex;gap:6px;margin:0 4px 6px;padding:6px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover)}\n.dsh-wspath-new-box input{flex:1;min-width:0;height:28px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit;font-size:12px}\n.dsh-wspath-new-box button{appearance:none;flex:none;height:28px;padding:0 8px;border:none;border-radius:6px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:12px;cursor:pointer}\n.dsh-wspath-new-box button:disabled{opacity:.5;cursor:default}\n.dsh-wspath-list{min-height:0;flex:1;display:flex;flex-direction:column;gap:2px;overflow:auto}\n.dsh-wspath-empty{padding:12px 8px;font-size:13px;color:var(--dsw-alias-label-secondary)}\n.dsh-wspath-section{flex:none;padding:6px 8px 2px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}\n.dsh-wspath-back,.dsh-wspath-days-btn{appearance:none;display:flex;align-items:center;gap:6px;width:100%;height:32px;margin:0;padding:0 8px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;text-align:left}\n.dsh-wspath-days-btn{justify-content:space-between;margin-top:4px;flex:none}\n.dsh-wspath-back:hover,.dsh-wspath-days-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-row{box-sizing:border-box;width:100%;display:flex;align-items:center;gap:2px;padding:2px;border-radius:8px}\n.dsh-wspath-row.is-current,.dsh-wspath-row:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.dsh-wspath-item{appearance:none;box-sizing:border-box;min-width:0;flex:1;display:flex;flex-direction:column;gap:2px;margin:0;padding:6px 8px;border:none;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}\n.dsh-wspath-item:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary)}\n.dsh-wspath-title{display:flex;align-items:center;gap:6px;min-width:0}\n.dsh-wspath-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500}\n.dsh-wspath-badge,.dsh-wspath-kind{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-active, var(--dsw-alias-bg-layer-1));font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}\n.dsh-wspath-kind{font-size:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary)}\n.dsh-wspath-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary)}\n.dsh-wspath-actions{display:flex;align-items:center;gap:2px;flex:none}\n.dsh-wspath-icon-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:0;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}\n.dsh-wspath-icon-btn:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-status{flex:none;padding:6px 8px 2px;font-size:12px;color:var(--dsw-alias-label-secondary)}\n.dsh-wspath-status.is-error{color:var(--dsw-alias-state-error-primary)}\n.dsh-wspath-hbadge{position:relative;display:inline-flex;align-items:center;flex:none}\n.dsh-wspath-hbtn{appearance:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:none;border-radius:12px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;font-weight:500;line-height:24px;cursor:pointer;transition:background-color 120ms ease,color 120ms ease;max-width:180px}\n.dsh-wspath-hbtn:hover,.dsh-wspath-hbtn.is-open{background:var(--dsw-alias-interactive-bg-pressed, var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary)}\n.dsh-wspath-hicon{flex:none;color:inherit;display:inline-flex;align-items:center}\n.dsh-wspath-hname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}\n.dsh-wspath-hchev{flex:none;color:var(--dsw-alias-label-tertiary);transition:transform 150ms ease}\n.dsh-wspath-hbtn.is-open .dsh-wspath-hchev{transform:rotate(180deg)}\n.dsh-wspath-hmenu{box-sizing:border-box;z-index:100;display:flex;flex-direction:column;width:min(320px,calc(100vw - 16px));padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-hmenu-head{padding:4px 8px 6px}\n.dsh-wspath-hmenu-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\n.dsh-wspath-hmenu-titletxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.dsh-wspath-hmenu-path{margin-top:3px;font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}\n.dsh-wspath-hmenu-divider{height:1px;background:var(--dsw-alias-border-l2);margin:4px 0}\n.dsh-wspath-hmenu-list{display:flex;flex-direction:column;gap:2px}\n.dsh-wspath-hmenu-item{appearance:none;display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;text-align:left;transition:background-color 100ms ease,color 100ms ease}\n.dsh-wspath-hmenu-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-hmenu-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;flex:none;color:var(--dsw-alias-label-tertiary)}\n.dsh-wspath-hmenu-item:hover .dsh-wspath-hmenu-icon{color:var(--dsw-alias-label-primary)}\n.dsh-wspath-hmenu-status{padding:4px 8px;font-size:11px;border-radius:6px;color:var(--dsw-alias-state-success-primary, #10b981);background:rgba(16,185,129,0.1);margin-top:2px;text-align:center}\n.dsh-wspath-sid-badge{position:relative;display:inline-flex;align-items:center;flex:none;margin-left:4px}\n.dsh-wspath-sid-btn{appearance:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.22));border-radius:12px;background:var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.06));color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;line-height:22px;cursor:pointer;transition:all 120ms ease;user-select:none}\n.dsh-wspath-sid-btn:hover,.dsh-wspath-sid-btn.is-open{background:var(--dsw-alias-interactive-bg-pressed, rgba(128,128,128,0.15));border-color:#2563eb;color:#2563eb}\n.dsh-wspath-sid-icon{font-weight:700;font-size:11px;color:var(--dsw-alias-label-tertiary,#888);margin-right:1px}\n.dsh-wspath-sid-popover{box-sizing:border-box;z-index:100;display:flex;flex-direction:column;width:min(340px,calc(100vw - 16px));padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\n.dsh-wspath-sid-head{padding:2px 4px 6px}\n.dsh-wspath-sid-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\n.dsh-wspath-sid-titletxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.dsh-wspath-sid-label{margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary,#888)}\n.dsh-wspath-sid-codebox{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:4px;padding:4px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-1, rgba(128,128,128,0.08));border:1px solid var(--dsw-alias-border-l2)}\n.dsh-wspath-sid-code{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--dsw-alias-label-primary);user-select:all;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.dsh-wspath-sid-copybtn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex-shrink:0}\n.dsh-wspath-sid-copybtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:#2563eb}\n"
++    const css = ".dsh-wspath{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center}\r\n.dsh-wspath-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:50%;padding:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color 120ms ease,color 120ms ease}\r\n.dsh-wspath-btn:hover,.dsh-wspath-btn.is-open{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-panel{box-sizing:border-box;z-index:80;display:flex;flex-direction:column;width:min(340px,calc(100vw - 16px));max-height:min(440px,calc(100vh - 24px));padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-panel.is-hero{z-index:120}\r\n.dsh-wspath-search-row{display:flex;align-items:center;gap:6px;margin:0 4px 6px}\r\n.dsh-wspath-search-row input{flex:1;min-width:0;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}\r\n.dsh-wspath-search-row input:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}\r\n.dsh-wspath-add-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer}\r\n.dsh-wspath-add-btn:hover,.dsh-wspath-add-btn.is-active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-new-box{box-sizing:border-box;display:flex;gap:6px;margin:0 4px 6px;padding:6px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover)}\r\n.dsh-wspath-new-box input{flex:1;min-width:0;height:28px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit;font-size:12px}\r\n.dsh-wspath-new-box button{appearance:none;flex:none;height:28px;padding:0 8px;border:none;border-radius:6px;background:var(--dsw-alias-brand-primary);color:#fff;font-size:12px;cursor:pointer}\r\n.dsh-wspath-new-box button:disabled{opacity:.5;cursor:default}\r\n.dsh-wspath-list{min-height:0;flex:1;display:flex;flex-direction:column;gap:2px;overflow:auto}\r\n.dsh-wspath-empty{padding:12px 8px;font-size:13px;color:var(--dsw-alias-label-secondary)}\r\n.dsh-wspath-section{flex:none;padding:6px 8px 2px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}\r\n.dsh-wspath-back,.dsh-wspath-days-btn{appearance:none;display:flex;align-items:center;gap:6px;width:100%;height:32px;margin:0;padding:0 8px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;text-align:left}\r\n.dsh-wspath-days-btn{justify-content:space-between;margin-top:4px;flex:none}\r\n.dsh-wspath-back:hover,.dsh-wspath-days-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-row{box-sizing:border-box;width:100%;display:flex;align-items:center;gap:2px;padding:2px;border-radius:8px}\r\n.dsh-wspath-row.is-current,.dsh-wspath-row:hover{background:var(--dsw-alias-interactive-bg-hover)}\r\n.dsh-wspath-item{appearance:none;box-sizing:border-box;min-width:0;flex:1;display:flex;flex-direction:column;gap:2px;margin:0;padding:6px 8px;border:none;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}\r\n.dsh-wspath-item:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary)}\r\n.dsh-wspath-title{display:flex;align-items:center;gap:6px;min-width:0}\r\n.dsh-wspath-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500}\r\n.dsh-wspath-badge,.dsh-wspath-kind{flex:none;padding:0 6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-active, var(--dsw-alias-bg-layer-1));font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary)}\r\n.dsh-wspath-kind{font-size:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary)}\r\n.dsh-wspath-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary)}\r\n.dsh-wspath-actions{display:flex;align-items:center;gap:2px;flex:none}\r\n.dsh-wspath-icon-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:0;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}\r\n.dsh-wspath-icon-btn:hover{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-status{flex:none;padding:6px 8px 2px;font-size:12px;color:var(--dsw-alias-label-secondary)}\r\n.dsh-wspath-status.is-error{color:var(--dsw-alias-state-error-primary)}\r\n.dsh-wspath-hbadge{position:relative;display:inline-flex;align-items:center;flex:none}\r\n.dsh-wspath-hbtn{appearance:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:none;border-radius:12px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;font-weight:500;line-height:24px;cursor:pointer;transition:background-color 120ms ease,color 120ms ease;max-width:180px}\r\n.dsh-wspath-hbtn:hover,.dsh-wspath-hbtn.is-open{background:var(--dsw-alias-interactive-bg-pressed, var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-hicon{flex:none;color:inherit;display:inline-flex;align-items:center}\r\n.dsh-wspath-hname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}\r\n.dsh-wspath-hchev{flex:none;color:var(--dsw-alias-label-tertiary);transition:transform 150ms ease}\r\n.dsh-wspath-hbtn.is-open .dsh-wspath-hchev{transform:rotate(180deg)}\r\n.dsh-wspath-hmenu{box-sizing:border-box;z-index:100;display:flex;flex-direction:column;width:min(320px,calc(100vw - 16px));padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-hmenu-head{padding:4px 8px 6px}\r\n.dsh-wspath-hmenu-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-hmenu-titletxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\r\n.dsh-wspath-hmenu-path{margin-top:3px;font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}\r\n.dsh-wspath-hmenu-divider{height:1px;background:var(--dsw-alias-border-l2);margin:4px 0}\r\n.dsh-wspath-hmenu-list{display:flex;flex-direction:column;gap:2px}\r\n.dsh-wspath-hmenu-item{appearance:none;display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;text-align:left;transition:background-color 100ms ease,color 100ms ease}\r\n.dsh-wspath-hmenu-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-hmenu-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;flex:none;color:var(--dsw-alias-label-tertiary)}\r\n.dsh-wspath-hmenu-item:hover .dsh-wspath-hmenu-icon{color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-hmenu-status{padding:4px 8px;font-size:11px;border-radius:6px;color:var(--dsw-alias-state-success-primary, #10b981);background:rgba(16,185,129,0.1);margin-top:2px;text-align:center}\r\n.dsh-wspath-sid-badge{position:relative;display:inline-flex;align-items:center;flex:none;margin-left:4px}\r\n.dsh-wspath-sid-btn{appearance:none;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.22));border-radius:12px;background:var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.06));color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;line-height:22px;cursor:pointer;transition:all 120ms ease;user-select:none}\r\n.dsh-wspath-sid-btn:hover,.dsh-wspath-sid-btn.is-open{background:var(--dsw-alias-interactive-bg-pressed, rgba(128,128,128,0.15));border-color:#2563eb;color:#2563eb}\r\n.dsh-wspath-sid-icon{font-weight:700;font-size:11px;color:var(--dsw-alias-label-tertiary,#888);margin-right:1px}\r\n.dsh-wspath-sid-popover{box-sizing:border-box;z-index:100;display:flex;flex-direction:column;width:min(340px,calc(100vw - 16px));padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv2);color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-sid-head{padding:2px 4px 6px}\r\n.dsh-wspath-sid-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}\r\n.dsh-wspath-sid-titletxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\r\n.dsh-wspath-sid-label{margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary,#888)}\r\n.dsh-wspath-sid-codebox{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:4px;padding:4px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-1, rgba(128,128,128,0.08));border:1px solid var(--dsw-alias-border-l2)}\r\n.dsh-wspath-sid-code{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--dsw-alias-label-primary);user-select:all;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\r\n.dsh-wspath-sid-copybtn{appearance:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex-shrink:0}\r\n.dsh-wspath-sid-copybtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:#2563eb}\r\n"
+     if (typeof document !== 'undefined') {
+       const id = 'dsh-workspace-path/ui.css'
+       let tag = document.querySelector('style[data-plugin-css=' + JSON.stringify(id) + ']')
+@@ -349,70 +349,6 @@ function pickerModel(opts = {}) {
+       )
+     }
+ 
+-    function HeroWorkspacePicker(props) {
+-      const { open, anchorRef, selectedId, onPick, onClose, workspaces, uiWorkspace, connection, useWorkspaces } = props
+-      const t = locale(), inputRef = React.useRef(null)
+-      const [coords, setCoords] = React.useState(null)
+-      const panel = usePanelReset(open)
+-      const wsSnap = useSnapshot(workspaces?.list)
+-      const host = useSnapshot(connection?.hostDescription)
+-      const home = host?.homeDirectory || host?.home
+-      const snap = typeof useWorkspaces === 'function' ? useWorkspaces((state) => state) : wsSnap
+-      const items = snap?.items || wsSnap?.items || []
+-      const model = pickerModel({ items, query: panel.query, view: panel.view, currentId: selectedId })
+-      const place = React.useCallback(() => {
+-        const btn = anchorRef?.current
+-        if (!btn) return
+-        const r = btn.getBoundingClientRect(), w = Math.min(340, window.innerWidth - 16)
+-        let l = r.left
+-        if (l + w > window.innerWidth - 8) l = Math.max(8, window.innerWidth - w - 8)
+-        setCoords({ left: Math.max(8, l), top: r.bottom + 6, width: w })
+-      }, [anchorRef])
+-      usePopover(open, (next) => { if (!next) onClose?.() }, place, anchorRef || { current: null }, '.dsh-wspath-panel')
+-      React.useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+-      const handleSelect = (ws) => {
+-        if (typeof onPick === 'function') onPick(ws.workspaceId)
+-        if (typeof onClose === 'function') onClose()
+-      }
+-      const canPickDir = typeof uiWorkspace?.pickDirectory === 'function' && typeof workspaces?.create === 'function'
+-      const handleAddWorkspace = async () => {
+-        if (!canPickDir) return
+-        try {
+-          const pickedPath = await uiWorkspace.pickDirectory()
+-          if (!pickedPath) return
+-          const res = await workspaces.create({ path: pickedPath })
+-          if (res?.workspaceId) {
+-            handleSelect(res)
+-          }
+-        } catch (err) {
+-          panel.setError(true)
+-          panel.setStatus(err instanceof Error ? err.message : String(err))
+-        }
+-      }
+-      const node = open && coords && typeof document !== 'undefined'
+-        ? ReactDOM.createPortal(
+-            h('div', { className: 'dsh-wspath-panel is-hero', style: { position: 'fixed', left: coords.left + 'px', top: coords.top + 'px', width: coords.width + 'px' } },
+-              h(PathPanel, {
+-                t,
+-                model,
+-                query: panel.query,
+-                onQuery: panel.setQuery,
+-                inputRef,
+-                currentId: selectedId,
+-                home,
+-                variant: 'picker',
+-                onSelect: handleSelect,
+-                canAddWorkspace: canPickDir,
+-                onAddWorkspace: handleAddWorkspace,
+-                status: panel.status,
+-                error: panel.error,
+-                onOpenDays: () => { panel.setQuery(''); panel.setView('days') },
+-                onBack: () => { panel.setQuery(''); panel.setView('projects') },
+-              }),
+-            ), document.body) : null
+-      return node
+-    }
+-
+     function findSessionWorkspace(wsSnap, sesSnap, sessionId) {
+       if (!sessionId) return null
+       const items = wsSnap?.items || []
+@@ -552,10 +488,6 @@ function pickerModel(opts = {}) {
+         const owner = (uiWorkspace && typeof uiWorkspace.startSession === 'function') ? uiWorkspace : ctx.workspaces
+         if (owner && typeof owner.startSession === 'function') owner.startSession(workspaceId)
+       }
+-      const flowSource = {
+-        getSnapshot: () => (typeof ctx.slots.entries === 'function' ? ctx.slots.entries('conversation.hero.workspace.directoryFlow').length > 0 : false),
+-        subscribe: (listener) => (typeof ctx.slots.subscribe === 'function' ? ctx.slots.subscribe('conversation.hero.workspace.directoryFlow', listener) : () => {}),
+-      }
+       ctx.slots.inject('sidebar.footer.action', () => {
+         let dispose
+         try {
+@@ -574,25 +506,23 @@ function pickerModel(opts = {}) {
+         } catch { disposeWs = undefined; disposeSid = undefined }
+         return () => { if (disposeWs) disposeWs(); if (disposeSid) disposeSid() }
+       })
+-      ctx.slots.inject('conversation.hero.workspace', () => {
+-        let dispose
+-        try {
+-          dispose = ctx.slots.register({
+-            name: 'conversation.hero.workspace',
+-            id: 'dsh-workspace-path-hero',
+-            priority: -10,
+-          }, (props) => h(HeroWorkspacePicker, {
+-            ...props,
+-            workspaces: ctx.workspaces,
+-            uiWorkspace,
+-            connection: ctx.connection,
+-          }))
+-        } catch (e) {
+-          console.error('[dsh-workspace-path] failed to register conversation.hero.workspace:', e)
+-          dispose = undefined
+-        }
+-        return () => { if (dispose) dispose() }
+-      })
++      // 刻意不再注册 `conversation.hero.workspace`，把 Hero 工作区选择器留给官方实现。
++      //
++      // 该槽位是 single 类（同一 priority 只能有一个占位者，最低 priority 渲染）。
++      // 0cdfefa 用 priority: -10 抢占了它，于是本插件成了唯一占位者，但两条路都断：
++      //   1.「添加工作区」只能直调 uiWorkspace 的 pickDirectory 方法，而它只对
++      //      native 后端成立——directory-picker seam 的浏览后端的 capability 里根本
++      //      没有 pick（只有 list / createDirectory），远程或不支持原生对话框的
++      //      宿主必然失败；
++      //   2. 应用内目录浏览器（directory-picker-browse 的客户端半侧）挂在
++      //      conversation.hero.workspace.directoryFlow 空位里，而该空位的声明权属于
++      //      ui-workspace 那份注册（slot 声明表不允许重复声明，后声明者抛
++      //      "already declared"），本插件的注册根本没有资格渲染这个空位，
++      //      对话框永远出不来。
++      // 结果就是官方选择器被顶掉、自己的添加入口又必然失败 —— 用户侧表现为
++      // 「无法选择工作区」。由官方 WorkspacePicker 占位时，它会按当前挂载的后端
++      // 类型自己决定弹 OS 对话框还是应用内目录浏览器，两侧都可用。
++      // 本插件的侧栏工作区中心（sidebar.footer.action）与顶栏徽章不受影响。
+     }
+     module.exports.apply = apply
+     module.exports.inject = inject
+diff --git a/client/apply.js b/client/apply.js
+index 96ff90b..d439a79 100644
+--- a/client/apply.js
++++ b/client/apply.js
+@@ -11,10 +11,6 @@
+         const owner = (uiWorkspace && typeof uiWorkspace.startSession === 'function') ? uiWorkspace : ctx.workspaces
+         if (owner && typeof owner.startSession === 'function') owner.startSession(workspaceId)
+       }
+-      const flowSource = {
+-        getSnapshot: () => (typeof ctx.slots.entries === 'function' ? ctx.slots.entries('conversation.hero.workspace.directoryFlow').length > 0 : false),
+-        subscribe: (listener) => (typeof ctx.slots.subscribe === 'function' ? ctx.slots.subscribe('conversation.hero.workspace.directoryFlow', listener) : () => {}),
+-      }
+       ctx.slots.inject('sidebar.footer.action', () => {
+         let dispose
+         try {
+@@ -33,25 +29,23 @@
+         } catch { disposeWs = undefined; disposeSid = undefined }
+         return () => { if (disposeWs) disposeWs(); if (disposeSid) disposeSid() }
+       })
+-      ctx.slots.inject('conversation.hero.workspace', () => {
+-        let dispose
+-        try {
+-          dispose = ctx.slots.register({
+-            name: 'conversation.hero.workspace',
+-            id: 'dsh-workspace-path-hero',
+-            priority: -10,
+-          }, (props) => h(HeroWorkspacePicker, {
+-            ...props,
+-            workspaces: ctx.workspaces,
+-            uiWorkspace,
+-            connection: ctx.connection,
+-          }))
+-        } catch (e) {
+-          console.error('[dsh-workspace-path] failed to register conversation.hero.workspace:', e)
+-          dispose = undefined
+-        }
+-        return () => { if (dispose) dispose() }
+-      })
++      // 刻意不再注册 `conversation.hero.workspace`，把 Hero 工作区选择器留给官方实现。
++      //
++      // 该槽位是 single 类（同一 priority 只能有一个占位者，最低 priority 渲染）。
++      // 0cdfefa 用 priority: -10 抢占了它，于是本插件成了唯一占位者，但两条路都断：
++      //   1.「添加工作区」只能直调 uiWorkspace 的 pickDirectory 方法，而它只对
++      //      native 后端成立——directory-picker seam 的浏览后端的 capability 里根本
++      //      没有 pick（只有 list / createDirectory），远程或不支持原生对话框的
++      //      宿主必然失败；
++      //   2. 应用内目录浏览器（directory-picker-browse 的客户端半侧）挂在
++      //      conversation.hero.workspace.directoryFlow 空位里，而该空位的声明权属于
++      //      ui-workspace 那份注册（slot 声明表不允许重复声明，后声明者抛
++      //      "already declared"），本插件的注册根本没有资格渲染这个空位，
++      //      对话框永远出不来。
++      // 结果就是官方选择器被顶掉、自己的添加入口又必然失败 —— 用户侧表现为
++      // 「无法选择工作区」。由官方 WorkspacePicker 占位时，它会按当前挂载的后端
++      // 类型自己决定弹 OS 对话框还是应用内目录浏览器，两侧都可用。
++      // 本插件的侧栏工作区中心（sidebar.footer.action）与顶栏徽章不受影响。
+     }
+     module.exports.apply = apply
+     module.exports.inject = inject
+diff --git a/client/ui.js b/client/ui.js
+index 311a982..8cab6a8 100644
+--- a/client/ui.js
++++ b/client/ui.js
+@@ -150,67 +150,3 @@
+         node,
+       )
+     }
+-
+-    function HeroWorkspacePicker(props) {
+-      const { open, anchorRef, selectedId, onPick, onClose, workspaces, uiWorkspace, connection, useWorkspaces } = props
+-      const t = locale(), inputRef = React.useRef(null)
+-      const [coords, setCoords] = React.useState(null)
+-      const panel = usePanelReset(open)
+-      const wsSnap = useSnapshot(workspaces?.list)
+-      const host = useSnapshot(connection?.hostDescription)
+-      const home = host?.homeDirectory || host?.home
+-      const snap = typeof useWorkspaces === 'function' ? useWorkspaces((state) => state) : wsSnap
+-      const items = snap?.items || wsSnap?.items || []
+-      const model = pickerModel({ items, query: panel.query, view: panel.view, currentId: selectedId })
+-      const place = React.useCallback(() => {
+-        const btn = anchorRef?.current
+-        if (!btn) return
+-        const r = btn.getBoundingClientRect(), w = Math.min(340, window.innerWidth - 16)
+-        let l = r.left
+-        if (l + w > window.innerWidth - 8) l = Math.max(8, window.innerWidth - w - 8)
+-        setCoords({ left: Math.max(8, l), top: r.bottom + 6, width: w })
+-      }, [anchorRef])
+-      usePopover(open, (next) => { if (!next) onClose?.() }, place, anchorRef || { current: null }, '.dsh-wspath-panel')
+-      React.useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+-      const handleSelect = (ws) => {
+-        if (typeof onPick === 'function') onPick(ws.workspaceId)
+-        if (typeof onClose === 'function') onClose()
+-      }
+-      const canPickDir = typeof uiWorkspace?.pickDirectory === 'function' && typeof workspaces?.create === 'function'
+-      const handleAddWorkspace = async () => {
+-        if (!canPickDir) return
+-        try {
+-          const pickedPath = await uiWorkspace.pickDirectory()
+-          if (!pickedPath) return
+-          const res = await workspaces.create({ path: pickedPath })
+-          if (res?.workspaceId) {
+-            handleSelect(res)
+-          }
+-        } catch (err) {
+-          panel.setError(true)
+-          panel.setStatus(err instanceof Error ? err.message : String(err))
+-        }
+-      }
+-      const node = open && coords && typeof document !== 'undefined'
+-        ? ReactDOM.createPortal(
+-            h('div', { className: 'dsh-wspath-panel is-hero', style: { position: 'fixed', left: coords.left + 'px', top: coords.top + 'px', width: coords.width + 'px' } },
+-              h(PathPanel, {
+-                t,
+-                model,
+-                query: panel.query,
+-                onQuery: panel.setQuery,
+-                inputRef,
+-                currentId: selectedId,
+-                home,
+-                variant: 'picker',
+-                onSelect: handleSelect,
+-                canAddWorkspace: canPickDir,
+-                onAddWorkspace: handleAddWorkspace,
+-                status: panel.status,
+-                error: panel.error,
+-                onOpenDays: () => { panel.setQuery(''); panel.setView('days') },
+-                onBack: () => { panel.setQuery(''); panel.setView('projects') },
+-              }),
+-            ), document.body) : null
+-      return node
+-    }
+diff --git a/test/pack.test.js b/test/pack.test.js
+index c4224ad..dc2fd57 100644
+--- a/test/pack.test.js
++++ b/test/pack.test.js
+@@ -5,12 +5,19 @@ import { describe, it } from 'node:test'
+ const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+ 
+ describe('packed client.js', () => {
+-  it('inlines picker classification and both picker surfaces', () => {
++  it('inlines picker classification and the sidebar surface', () => {
+     assert.match(src, /function pickerModel/)
+     assert.match(src, /function isDayWorkspace/)
+     assert.match(src, /variant: 'hub'/)
+-    assert.match(src, /variant: 'picker'/)
+-    assert.match(src, /conversation\.hero\.workspace/)
+-    assert.match(src, /dsh-workspace-path-hero/)
++  })
++
++  it('leaves the Hero workspace slot to the official picker', () => {
++    // 顶掉 conversation.hero.workspace 会让官方选择器连同它的目录流程空位一起失效：
++    // 本插件的注册没有资格渲染 conversation.hero.workspace.directoryFlow（声明权在
++    // ui-workspace 手里），而 uiWorkspace.pickDirectory() 又只对 native 后端成立。
++    // 两者叠加 = 官方入口没了、自己的入口也不会成功 → 无法选择工作区。
++    assert.doesNotMatch(src, /dsh-workspace-path-hero/)
++    assert.doesNotMatch(src, /uiWorkspace\.pickDirectory/)
++    assert.doesNotMatch(src, /HeroWorkspacePicker/)
+   })
+ })

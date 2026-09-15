@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, shell, dialog, clipboard, ipcMain } from 'electron'
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { findFreePort } from './port-finder.js'
@@ -27,36 +27,43 @@ async function checkDataDirectory(userDataPath) {
 
   // 1. 若已有配置，检查目标路径是否可用（防止外接移动硬盘被拔掉导致崩溃）
   if (existsSync(configFile)) {
+    let configuredPath = null
     try {
       const parsed = JSON.parse(readFileSync(configFile, 'utf8'))
-      const configuredPath = parsed?.dshHome
-      if (configuredPath && !existsSync(configuredPath)) {
-        const choice = await dialog.showMessageBox({
-          type: 'warning',
-          title: 'JackDSH - 数据存储目录未就绪',
-          message: '未检测到配置的数据存储路径',
-          detail: `当前配置的存储路径不可访问：\n${configuredPath}\n\n如果你使用的是外接移动硬盘，请连接后再点击「重试」；或者你可以选择临时使用本机默认目录启动。`,
-          buttons: ['重试', '临时使用默认目录', '退出应用'],
-          defaultId: 0,
-          cancelId: 2,
-          noLink: true,
-        })
-        if (choice.response === 0) {
-          return checkDataDirectory(userDataPath)
-        } else if (choice.response === 1) {
-          mkdirSync(defaultPath, { recursive: true })
-          return defaultPath
-        } else {
-          app.quit()
-          return null
-        }
+      const raw = typeof parsed?.dshHome === 'string' ? parsed.dshHome.trim() : ''
+      configuredPath = raw || null
+    } catch (error) {
+      // 配置损坏不是致命错误：退回默认目录继续启动，只留一条日志
+      console.warn(`[JackDSH] dsh-home.json 读取失败，回退默认数据目录: ${error.message}`)
+    }
+
+    if (configuredPath && !existsSync(configuredPath)) {
+      const choice = await dialog.showMessageBox({
+        type: 'warning',
+        title: 'JackDSH - 数据存储目录未就绪',
+        message: '未检测到配置的数据存储路径',
+        detail: `当前配置的存储路径不可访问：\n${configuredPath}\n\n如果你使用的是外接移动硬盘，请连接后再点击「重试」；或者你可以选择临时使用本机默认目录启动。`,
+        buttons: ['重试', '临时使用默认目录', '退出应用'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      })
+      if (choice.response === 0) {
+        return checkDataDirectory(userDataPath)
+      } else if (choice.response === 2) {
+        app.quit()
+        return null
       }
-    } catch {}
-    return
+      mkdirSync(defaultPath, { recursive: true })
+      return defaultPath
+    }
+
+    if (configuredPath) return configuredPath
   }
 
   // 2. 默认静默就绪：零阻塞弹窗，直接确保默认数据目录就绪
   mkdirSync(defaultPath, { recursive: true })
+  return defaultPath
 }
 
 // 单实例锁：防止多开或子进程误开导致 Dock 图标泛滥

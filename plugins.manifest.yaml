@@ -27,7 +27,20 @@ plugins:
     ref: main
   - name: dsh-workspace-path
     repo: https://github.com/JackAIStudio/dsh-workspace-path.git
-    ref: main
+    # 钉死在「Hero 工作区选择器顶掉官方选择器」那次重构之前。
+    #
+    # 该仓库 0cdfefa（"重构 Hero 工作区选择器，直接调用原生目录选择器"）用
+    # priority: -10 抢占了 conversation.hero.workspace 槽位（single 槽位「最低
+    # priority 渲染」），但它的「添加工作区」改成了直接调 uiWorkspace.pickDirectory()：
+    #   · pickDirectory() 只对 native 后端成立，浏览后端的 capability 里根本没有 pick；
+    #   · 它又无法渲染 conversation.hero.workspace.directoryFlow 空位
+    #     （空位声明权在 ui-workspace 手里，第二个声明会抛 "already declared"），
+    #     所以应用内目录浏览器永远出不来。
+    # 结果：官方选择器被顶掉、自己的添加入口又必然失败 → 无法选择工作区。
+    # 回到 6303361 后，该插件对 Hero 槽位的注册会因槽位冲突被静默放弃，
+    # 官方选择器（配合 profile 里固定的 browse 交互）正常工作。
+    # 上游修好后（见 patches/dsh-workspace-path-hero-picker.patch）即可改回 main。
+    ref: 630336131600968b2cfe236b2192fe9a4098093e
   - name: dsh-robust-search
     repo: https://github.com/JackAIStudio/dsh-robust-search.git
     ref: main
@@ -71,3 +84,24 @@ plugins:
     npm: "dsh-codex-timeline@0.6.0"
   - name: "@wxg-prc-cpg/browser-skill-dsh-plugin"
     npm: "@wxg-prc-cpg/browser-skill-dsh-plugin@0.2.1"
+  # 把本机已登录的 WorkBuddy 账号接成 DSH 的 workbuddy / workbuddy-global provider，
+  # 附带只读积分概览与模型管理（国内版 + 国际版双区域并行）。
+  #
+  # 关于版本：2.0.1 的 peerDependencies 把 DSH 各包写成
+  #   ">=0.1.5-rc.1 <0.2.0 || >=0.1.2-rc.1 <0.2.0"
+  # 即已声明兼容本发行版的 0.1.2-rc.1；但它把 @earendil-works/pi-ai 写成
+  #   ">=0.85.0 <0.86.0"
+  # 而本发行版（DSH 0.1.2-rc.1）经 pnpm-lock 钉死的是 pi-ai 0.84.4。二者不一致，
+  # 已实测确认不影响使用，故仍取最新版：
+  #   · 插件只用 createProvider（@earendil-works/pi-ai）与 openAICompletionsApi
+  #     （@earendil-works/pi-ai/api/openai-completions.lazy）两个 API；
+  #     前者签名在 0.84.4/0.85.1 逐字符一致，CreateProviderOptions 完全一致，
+  #     后者在 0.84.4 也存在（exports 的 "./api/*" 通配两版本相同）；
+  #     models.d.ts 与 openai-completions.d.ts 的差异纯为新增
+  #     （streamDeferred 方法、vllmPriority 字段），无破坏性改动。
+  #   · 用真实 pi-ai 0.84.4 按插件的精确入参形态跑过 createProvider 装配，通过。
+  # 若上游此后引入 0.85 专有 API，回退方案是钉 1.2.0（其 peer 明写接受
+  # >=0.82.1 <0.85.0），代价是丢掉国际版支持（1.4.0 才加入）与 2.0.1 的关键修复。
+  # 治理：prepare-bundle.js 只做 npm pack + 解包，不校验 peer，故上表不影响构建。
+  - name: dsh-connect-workbuddy
+    npm: "dsh-connect-workbuddy@2.0.1"

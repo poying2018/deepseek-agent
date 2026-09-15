@@ -1,6 +1,6 @@
 {
   "name": "jackdsh",
-  "version": "9.14.23",
+  "version": "9.14.24",
   "type": "module",
   "description": "JackDSH (开箱即用 DeepSeek Harness 桌面客户端，内置创作者工作台与精选插件)",
   "main": "src/main/index.js",
@@ -8,6 +8,9 @@
   "license": "MIT",
   "scripts": {
     "status:plugins": "node scripts/scan-plugins-status.mjs",
+    "check:picker": "node scripts/check-picker-patch.mjs",
+    "check:plugins": "node scripts/check-plugin-peers.mjs",
+    "check:dist": "node scripts/verify-dist-compose.mjs",
     "release:check": "node scripts/scan-plugins-status.mjs",
     "release:preflight": "node scripts/release-helper.mjs preflight",
     "release:notes": "node scripts/release-helper.mjs draft-notes",

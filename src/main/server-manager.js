@@ -8,6 +8,21 @@ import { TunnelClient } from './tunnel-client.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+/**
+ * 内置「浏览交互」两面（host 能力行 + 客户端界面行）的包名。
+ * seam 文档把「固定某种交互」定义为：停用自适应选择器行，再直接组合这一对行。
+ * 两面必须成对出现，理由见 ServerManager#pickerPatchLines。
+ */
+const PICKER_BROWSE_BACKEND = '@deepseek-ai/dsh-host-directory-picker-browse'
+const PICKER_BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+/** JackDSH 托管补丁区的起止标记：每次启动按平台/环境重写，能把历史上写坏的内容自动纠正。 */
+const MANAGED_BEGIN = '# >>> JackDSH 托管区：启动时自动重写，请勿手工编辑 >>>'
+const MANAGED_END = '# <<< JackDSH 托管区 <<<'
+
+/** 本发行版自己管过的补丁行 id：重写托管区前，先摘掉没有标记的历史版本。 */
+const MANAGED_ROW_IDS = ['directory-picker', 'client-hmr', 'dsh-mobile-plus']
+
 export class ServerManager {
   /**
    * @param {Object} options
@@ -402,84 +417,124 @@ export class ServerManager {
   }
 
   /**
-   * 确保 cordis.patch.yml 处于健康状态：
-   * 在 Windows 平台上，DSH 默认的 win32-native 文件夹选择器依赖 koffi 原生模块和子进程，
-   * 在 Electron 封装、跨平台打包以及包含特定中文路径（UTF-16LE 截断 Bug）时极易崩溃退出
-   * （报 win32 folder dialog worker exited before reporting a result）。
-   * 官方标准修复方案为挂载 @deepseek-ai/dsh-host-directory-picker-browse 纯 JS 目录浏览选择器。
+   * 确保 cordis.patch.yml 处于健康状态（按当前平台/环境重写 JackDSH 托管区）。
+   *
+   * ── Windows 上「无法选择工作区」的真实成因 ────────────────────────────────
+   * 官方默认把 `directory-picker` 行挂成 dsh-host-directory-picker-auto，由它在
+   * 启动时判定一次走 native 还是 browse。判定表里「绑定回环地址 + 非 SSH 启动 +
+   * win32」必然判成 native；而 native 的每一次 pick 都要 spawn 一个子进程，
+   * 用 koffi 在该子进程主线程里驱动 COM IFileOpenDialog。本发行版用
+   * Electron-as-Node 跑内核（宿主主线程是 libuv 事件循环，没有 Win32 消息泵），
+   * 该子进程会在 Show() 里直接退出而不上报结果，宿主侧报：
+   *   win32 folder dialog worker exited before reporting a result
+   * 用户看到的就是「点『添加工作区』没反应 / 无法选择工作区」。
+   *
+   * ── 为什么旧写法一次都没生效 ─────────────────────────────────────────────
+   * Cordis 补丁行里的 `name` 是**一致性校验守卫**，不是覆盖字段。applyEntryPatches()
+   * 先比对 `name` 与目标行当前的 `name`，不一致就整条跳过（只留一条
+   * "patch: name mismatch ... skipping" 警告），并且 `name` 被单独解构出去、
+   * 永远不会写进目标行。所以历史上那条
+   *   - id: directory-picker
+   *     name: '@deepseek-ai/dsh-host-directory-picker-browse'
+   * 从未改写过 auto 行，一直是会崩的 native 选择器。
+   *
+   * ── 正确做法（seam 文档定义的「固定交互」）────────────────────────────────
+   * 停用 auto 行，然后直接组合该交互的**两面**：host 能力行 + 对应客户端界面行。
+   * 两面必须成对：只挂 host 面时，ui-workspace 占用的
+   * `conversation.hero.workspace.directoryFlow` 空位无人占位（flowAvailable=false），
+   * 官方 Hero 工作区选择器连「添加工作区」入口都不会渲染，依旧选不了工作区。
    */
   ensureCordisPatch(patchPath) {
-    const isWin = process.platform === 'win32' || process.env.DSH_FORCE_BROWSE_PICKER === '1'
-    const browsePickerBlock = [
+    let raw = ''
+    if (existsSync(patchPath)) {
+      try {
+        raw = readFileSync(patchPath, 'utf8')
+      } catch (error) {
+        console.warn(`[ServerManager] failed to read cordis.patch.yml: ${error.message}`)
+      }
+    }
+
+    const groups = [this.pickerPatchLines(), clientHmrPatchLines(), this.relayPatchLines()].filter((group) => group.length > 0)
+    const managed = groups.flatMap((group, index) => (index === 0 ? group : ['', ...group]))
+    const next = spliceManagedRegion(raw, managed)
+
+    if (next !== raw) {
+      try {
+        writeFileSync(patchPath, next)
+      } catch (error) {
+        console.warn(`[ServerManager] failed to patch cordis.patch.yml: ${error.message}`)
+      }
+    }
+  }
+
+  /**
+   * 探测已安装的 DSH 依赖树里是否真的带着浏览选择器的两面。
+   * 探测不到就什么都不做、保留官方 auto 行——宁可维持原状，也不写一个半残的
+   * 组合（只挂 host 面会让工作区选择器彻底失去「添加工作区」入口）。
+   */
+  hasBrowsePickerPackages() {
+    const roots = [
+      join(this.runtimePath, '../app/node_modules'),
+      join(__dirname, '../../node_modules'),
+      process.resourcesPath ? join(process.resourcesPath, 'node_modules') : '',
+    ].filter(Boolean)
+    return roots.some((root) =>
+      [PICKER_BROWSE_BACKEND, PICKER_BROWSE_SURFACE].every((pkg) =>
+        existsSync(join(root, ...pkg.split('/'), 'package.json')),
+      ),
+    )
+  }
+
+  /**
+   * 目录选择器组合的补丁行（详见 ensureCordisPatch 的成因说明）。
+   * 环境变量逃生门：
+   *   JACKDSH_FORCE_BROWSE_PICKER=1 —— 任何平台都固定为应用内浏览选择器
+   *     （手机/异地远程操作时原生对话框弹在无人值守的宿主屏幕上，必须用浏览面）；
+   *   JACKDSH_FORCE_NATIVE_PICKER=1 —— 任何平台都保留官方 auto 行（愿意自己承担
+   *     native 崩溃风险时使用），优先级高于前一个。
+   * @returns 托管区里的补丁行（数组元素即文件行，末尾无换行）
+   */
+  pickerPatchLines() {
+    const forceNative = process.env.JACKDSH_FORCE_NATIVE_PICKER === '1'
+    const forceBrowse = process.env.JACKDSH_FORCE_BROWSE_PICKER === '1'
+    const wantBrowse = !forceNative && (forceBrowse || process.platform === 'win32')
+
+    if (!wantBrowse) return []
+    if (!this.hasBrowsePickerPackages()) {
+      console.warn('[ServerManager] 未在已安装的 DSH 依赖树里找到浏览选择器的两面，保留官方自适应（auto）目录选择器')
+      return []
+    }
+
+    return [
+      '# 停用官方自适应选择器（win32 上它必然判定为 native，而 native 的 COM',
+      '# 子进程在 Electron-as-Node 宿主里会静默退出，表现为无法选择工作区）。',
       '- id: directory-picker',
-      "  name: '@deepseek-ai/dsh-host-directory-picker-browse'",
-    ].join('\n')
-    const clientHmrBlock = [
-      '# 禁用官方客户端热重载 SSE 通道，彻底避免单端口多标签连接耗尽',
-      '- id: client-hmr',
       '  disabled: true',
-    ].join('\n')
+      '',
+      '# 固定为浏览交互：host 能力行 + 客户端界面行，两面必须成对出现。',
+      '# 注意：不要试图用 `- id: directory-picker` + `name:` 去「覆盖」——补丁里的',
+      '# name 只是校验守卫，不一致会整条跳过，永远改不动目标行的插件。',
+      '- insert:',
+      '    - id: directory-picker-browse',
+      `      name: '${PICKER_BROWSE_BACKEND}'`,
+      '',
+      '    - id: directory-picker-browse-surface',
+      `      name: '${PICKER_BROWSE_SURFACE}'`,
+    ]
+  }
 
-    if (!existsSync(patchPath)) {
-      const initialBlocks = [clientHmrBlock]
-      if (isWin) {
-        initialBlocks.unshift(`# Windows 环境下启用官方纯 JS 目录浏览选择器，避免原生 Win32 COM 对话框因原生模块或环境问题退出\n${browsePickerBlock}`)
-      }
-      writeFileSync(patchPath, initialBlocks.join('\n') + '\n')
-      return
-    }
-
-    try {
-      let raw = readFileSync(patchPath, 'utf8')
-      let changed = false
-
-      if (isWin && !raw.includes("name: '@deepseek-ai/dsh-host-directory-picker-browse'") && !raw.includes('name: "@deepseek-ai/dsh-host-directory-picker-browse"')) {
-        if (raw.includes('id: directory-picker')) {
-          raw = raw.replace(
-            /- id: directory-picker[\r\n]+(?:\s+name:\s*['"]?[^'"\r\n]+['"]?[\r\n]*)?/g,
-            `${browsePickerBlock}\n`
-          )
-        } else {
-          raw = raw.trim() ? `${raw.trimEnd()}\n\n${browsePickerBlock}\n` : `${browsePickerBlock}\n`
-        }
-        changed = true
-      }
-
-      if (!raw.includes('id: client-hmr')) {
-        raw = raw.trim() && raw.trim() !== '[]' ? `${raw.trimEnd()}\n\n${clientHmrBlock}\n` : `${clientHmrBlock}\n`
-        changed = true
-      }
-
-      // 手机远程公网中转配置同步注入
-      const relayConfig = this.getRelayConfig()
-      const mobilePlusMarker = '- id: dsh-mobile-plus'
-      if (relayConfig && relayConfig.enabled && relayConfig.publicBaseUrl) {
-        const mobilePlusBlock = [
-          '# 手机远程公网中转入口',
-          '- id: dsh-mobile-plus',
-          '  config:',
-          `    publicBaseUrl: ${relayConfig.publicBaseUrl}`,
-        ].join('\n')
-
-        if (raw.includes(mobilePlusMarker)) {
-          const reg = /- id: dsh-mobile-plus[\r\n]+(?:\s+config:[\r\n]+(?:\s+publicBaseUrl:\s*[^\r\n]+[\r\n]*)?)?/g
-          const updated = raw.replace(reg, `${mobilePlusBlock}\n`)
-          if (updated !== raw) {
-            raw = updated
-            changed = true
-          }
-        } else {
-          raw = raw.trim() && raw.trim() !== '[]' ? `${raw.trimEnd()}\n\n${mobilePlusBlock}\n` : `${mobilePlusBlock}\n`
-          changed = true
-        }
-      }
-
-      if (changed) {
-        writeFileSync(patchPath, raw)
-      }
-    } catch (error) {
-      console.warn(`[ServerManager] failed to patch cordis.patch.yml: ${error.message}`)
-    }
+  /**
+   * 手机远程公网中转入口的补丁行：配置存在时把公网地址注入 dsh-mobile-plus。
+   */
+  relayPatchLines() {
+    const relayConfig = this.getRelayConfig()
+    if (!relayConfig || !relayConfig.enabled || !relayConfig.publicBaseUrl) return []
+    return [
+      '# 手机远程公网中转入口。',
+      '- id: dsh-mobile-plus',
+      '  config:',
+      `    publicBaseUrl: ${relayConfig.publicBaseUrl}`,
+    ]
   }
 
   /**
@@ -674,6 +729,109 @@ export class ServerManager {
       this.childProcess = null
     }
   }
+}
+
+/** 禁用官方客户端热重载 SSE 通道，彻底避免单端口多标签连接耗尽。 */
+function clientHmrPatchLines() {
+  return [
+    '# 禁用官方客户端热重载 SSE 通道，彻底避免单端口多标签连接耗尽。',
+    '- id: client-hmr',
+    '  disabled: true',
+  ]
+}
+
+/**
+ * 顶层补丁行的块边界：从 `- ...` 行起，吃掉后续所有缩进内容（含块内空行）。
+ * @param {string[]} lines
+ * @param {number} start 起始行下标
+ * @returns {number} 块结束（不含）的行下标
+ */
+function managedBlockEnd(lines, start) {
+  let i = start + 1
+  while (i < lines.length) {
+    const line = lines[i]
+    if (line.trim() !== '' && /^\s/.test(line)) {
+      i += 1
+      continue
+    }
+    if (line.trim() === '') {
+      let next = i
+      while (next < lines.length && lines[next].trim() === '') next += 1
+      if (next < lines.length && lines[next].trim() !== '' && /^\s/.test(lines[next])) {
+        i = next
+        continue
+      }
+    }
+    break
+  }
+  return i
+}
+
+/**
+ * 摘掉历史遗留、没有托管标记的补丁块，使托管区重写是幂等的：
+ *  1. 上一版写下的托管标记区（BEGIN..END）；
+ *  2. 含 directory-picker-browse* 行的顶层 `- insert:` 块；
+ *  3. 顶层 `- id: <MANAGED_ROW_IDS>` 块，连同紧贴在它上方的说明注释。
+ * @param {string} raw 现有补丁文件内容
+ * @returns {string} 清理后的正文（去尾空格、压缩连续空行）
+ */
+function stripManagedBlocks(raw) {
+  const lines = raw.split(/\r?\n/)
+  const dropped = new Array(lines.length).fill(false)
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+
+    if (line.trim() === MANAGED_BEGIN) {
+      let j = i
+      while (j < lines.length && lines[j].trim() !== MANAGED_END) {
+        dropped[j] = true
+        j += 1
+      }
+      if (j < lines.length) dropped[j] = true
+      i = j
+      continue
+    }
+
+    if (/^-\s+insert:\s*$/.test(line)) {
+      const end = managedBlockEnd(lines, i)
+      if (/directory-picker-browse/.test(lines.slice(i, end).join('\n'))) {
+        for (let j = i; j < end; j += 1) dropped[j] = true
+      }
+      i = end - 1
+      continue
+    }
+
+    const rowMatch = line.match(/^-\s+id:\s*(\S+)\s*$/)
+    if (rowMatch && MANAGED_ROW_IDS.includes(rowMatch[1])) {
+      const end = managedBlockEnd(lines, i)
+      for (let j = i; j < end; j += 1) dropped[j] = true
+      for (let j = i - 1; j >= 0 && /^#/.test(lines[j]); j -= 1) dropped[j] = true
+      i = end - 1
+    }
+  }
+
+  return lines
+    .filter((_, index) => !dropped[index])
+    .join('\n')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * 把生成的托管区拼到清理后的正文尾部：两个标记之间永远只有生成内容，
+ * 标记之外的用户内容只补不删。空的 entry 列表占位（`[]` / `---`）直接丢弃。
+ * @param {string} raw 现有补丁文件内容
+ * @param {string[]} managedLines 托管区补丁行
+ * @returns {string} 新的补丁文件内容（以单个换行结尾）
+ */
+function spliceManagedRegion(raw, managedLines) {
+  const body = stripManagedBlocks(raw)
+  const parts = []
+  if (body && body !== '[]' && body !== '---') parts.push(body)
+  if (managedLines.length > 0) parts.push([MANAGED_BEGIN, ...managedLines, MANAGED_END].join('\n'))
+  return parts.join('\n\n').replace(/\n{3,}/g, '\n\n') + '\n'
 }
 
 /**

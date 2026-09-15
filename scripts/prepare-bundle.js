@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, chmodSync, unlinkSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -86,6 +86,9 @@ function resolvePluginSource(entry) {
     const tgz = readdirSync(cache).find((f) => f.endsWith('.tgz'))
     if (!tgz) throw new Error(`npm pack 未能生成 tgz 归档: ${entry.npm}`)
     execSync(`tar -xzf "${tgz}" --strip-components=1`, { cwd: cache, stdio: ['ignore', 'pipe', 'pipe'] })
+    // 必须删掉解包用的 tgz：它就在 cache 目录里，会被下面的 cpSync 一起复制进
+    // bundle-runtime/plugins/<name>/，等于把插件内容在发行版里重复存一份。
+    unlinkSync(join(cache, tgz))
     return { dir: cache, origin: `npm@${entry.npm}` }
   }
 
@@ -108,8 +111,41 @@ function resolvePluginSource(entry) {
   }
   mkdirSync(cacheDir, { recursive: true })
   console.log(`  ⬇️  clone ${entry.repo} @ ${entry.ref}`)
-  execSync(`git clone --depth 1 --branch ${entry.ref} "${entry.repo}" "${cache}"`, { stdio: ['ignore', 'pipe', 'pipe'] })
+  cloneAtRef(entry.repo, entry.ref, cache)
   return { dir: cache, origin: `public@${entry.ref}` }
+}
+
+/** 判定一个 ref 是不是裸 commit SHA（7~40 位十六进制）。 */
+const isCommitSha = (ref) => /^[0-9a-f]{7,40}$/i.test(ref)
+
+/**
+ * 把仓库取到指定 ref。
+ *
+ * 为什么不能直接 `git clone --branch <ref>`：该参数**只接受分支名或标签名**，
+ * 传裸 commit SHA 会 fatal 退出。而 plugins.manifest.yaml 用 SHA 钉死构建输入
+ * （上游没有可用 tag 时这是唯一办法），所以 SHA 必须走另一条路径。
+ *
+ * SHA 路径用 `git init` + `git fetch --depth 1 origin <sha>` + `checkout FETCH_HEAD`：
+ * GitHub 支持按 SHA fetch，因此仍能保持浅克隆。若服务端拒绝按 SHA fetch，
+ * 回落到「全量 clone 后 checkout」。
+ */
+function cloneAtRef(repo, ref, dest) {
+  const opts = { stdio: ['ignore', 'pipe', 'pipe'] }
+  if (!isCommitSha(ref)) {
+    execSync(`git clone --depth 1 --branch ${ref} "${repo}" "${dest}"`, opts)
+    return
+  }
+  mkdirSync(dest, { recursive: true })
+  const inDest = { ...opts, cwd: dest }
+  execSync('git init -q', inDest)
+  execSync(`git remote add origin "${repo}"`, inDest)
+  try {
+    execSync(`git fetch --depth 1 origin ${ref}`, inDest)
+  } catch {
+    console.warn(`  ⚠️  服务端不支持按 SHA 浅取，回落全量 clone: ${repo} @ ${ref}`)
+    execSync(`git fetch origin`, inDest)
+  }
+  execSync('git checkout -q FETCH_HEAD', inDest)
 }
 
 console.log('🧩 [2/4] 收纳精选插件与依赖...')
