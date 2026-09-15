@@ -19,7 +19,7 @@
  * 第 3 个参数可选，用于临时评估「把某插件补进 bundles 会不会撞 id」；
  * 不传时场景 B 会自动扫 runtime/plugins 找出孤儿插件（打进包却没注册的）。
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -64,6 +64,7 @@ if (argv3) {
   runtimePath = DEFAULT_RUNTIME
 }
 
+const homeExplicit = Boolean(dshHomeArg && dshHomeArg.trim())
 const dshHome = findDshHome(dshHomeArg)
 const profilePkgPath = dshHome ? join(dshHome, 'profiles', 'web', 'package.json') : null
 const profilePatchPath = dshHome ? join(dshHome, 'profiles', 'web', 'cordis.patch.yml') : null
@@ -171,8 +172,29 @@ if (!profilePkgPath) {
 const profilePkg = JSON.parse(readFileSync(profilePkgPath, 'utf8'))
 const bundles = profilePkg.dsh.profile.bundles
 
-console.log(`\ndshHome：${dshHome}`)
+console.log(`\ndshHome：${dshHome}${homeExplicit ? '' : '（未显式传参，自动探测到的本机活数据目录）'}`)
 console.log(`runtimePath：${runtimePath}`)
+
+// ── 数据新鲜度指纹 ──────────────────────────────────────────────────────
+// 本脚本的被测对象是「profile 里那份 cordis.patch.yml」，而它由**应用启动时**
+// 重写。如果你用的是本机活数据目录、且它最后一次启动早于当前构建，那么这份
+// 补丁可能还是旧版本（例如目录选择器修复之前的形态），场景 A 会整片报红，
+// 看上去像回归、实际只是文件陈旧。把「修改时间 + 有没有托管区标记」打出来，
+// 一眼就能区分「真回归」与「读了旧文件」。
+if (profilePatchPath && existsSync(profilePatchPath)) {
+  const st = statSync(profilePatchPath)
+  const patchRaw = readFileSync(profilePatchPath, 'utf8')
+  const hasManaged = patchRaw.includes('# >>> JackDSH 托管区')
+  const stamp = `${st.mtime.getFullYear()}-${String(st.mtime.getMonth() + 1).padStart(2, '0')}-${String(st.mtime.getDate()).padStart(2, '0')} ${String(st.mtime.getHours()).padStart(2, '0')}:${String(st.mtime.getMinutes()).padStart(2, '0')}`
+  console.log(`profile 补丁：${profilePatchPath}`)
+  console.log(`  最后修改 ${stamp}｜${st.size} 字节｜托管区标记 ${hasManaged ? '有' : '无 ★'}`)
+  if (!hasManaged && !homeExplicit) {
+    console.log(
+      '  ⚠️  这份补丁没有托管区标记，说明它由**旧版本**写入。请用当前构建启动一次应用' +
+        '（让它就地重写），或显式传入一个刚启动过的目录，否则下面的失败均为误报。',
+    )
+  }
+}
 console.log(`\n发行版真实 bundle 清单（${bundles.length} 个）：`)
 bundles.forEach((b, i) => console.log(`  ${String(i + 1).padStart(2)}. ${b}`))
 
