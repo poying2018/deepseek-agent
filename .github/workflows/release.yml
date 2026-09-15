@@ -96,7 +96,7 @@ jobs:
             NOTES_ARG="--notes-file RELEASE_NOTES_${{ github.ref_name }}.md"
           fi
           gh release create "${{ github.ref_name }}" \
-            --title "🚀 JackDSH ${{ github.ref_name }}" \
+            --title "🚀 DeepSeek Agent ${{ github.ref_name }}" \
             $NOTES_ARG \
             --draft=false 2>/dev/null || true
           gh release upload "${{ github.ref_name }}" release/*.dmg --clobber
@@ -112,7 +112,7 @@ jobs:
             NOTES_ARG="--notes-file RELEASE_NOTES_${{ github.ref_name }}.md"
           fi
           gh release create "${{ github.ref_name }}" \
-            --title "🚀 JackDSH ${{ github.ref_name }}" \
+            --title "🚀 DeepSeek Agent ${{ github.ref_name }}" \
             $NOTES_ARG \
             --draft=false 2>/dev/null || true
           gh release upload "${{ github.ref_name }}" release/*.exe --clobber

@@ -1,5 +1,10 @@
 appId: com.jackaistudio.jackdsh
-productName: JackDSH
+# ⚠️ appId 故意保持 com.jackaistudio.jackdsh **不随品牌改名**。
+# NSIS 的卸载注册表键 GUID 由 appId 派生：改了 appId 就会生成一个新 GUID，
+# 老版本在「应用和功能」里的卸载条目会变成删不掉的孤儿，且新旧版本无法原地覆盖升级。
+# appId 只出现在系统日志/清单里，用户基本看不到，没必要为此牺牲升级连续性。
+# 若确实要改，必须同时提供「卸载旧版 → 安装新版」的迁移指引。
+productName: DeepSeek Agent
 npmRebuild: false
 directories:
   # 默认输出到仓库内 release/（CI 直接用）。
@@ -64,7 +69,8 @@ mac:
     - target: dmg
       arch:
         - arm64
-  artifactName: "${productName}-${version}-Mac-arm64.${ext}"
+  # 同 win 段：产物名用连字符字面量，避免与 latest.yml 里的 url 不一致
+  artifactName: "DeepSeek-Agent-${version}-Mac-arm64.${ext}"
   # 公证（notarization）要求开启 hardened runtime；无公证凭据时仅影响签名配置，不影响构建
   hardenedRuntime: true
   gatekeeperAssess: false
@@ -79,7 +85,13 @@ win:
     - target: nsis
       arch:
         - x64
-  artifactName: "${productName}-${version}-Windows-Setup.${ext}"
+  # ⚠️ 产物名**故意不写 ${productName}**：productName 是 "DeepSeek Agent"（含空格），
+  # 而 electron-builder 在 latest.yml 的 url/path 里会把空格折成连字符，磁盘上的文件
+  # 却仍带空格 —— 两者不一致，electron-updater 按 latest.yml 去找会 404。
+  # 实测：latest.yml 写 DeepSeek-Agent-9.14.24-Windows-Setup.exe，
+  #       磁盘上却是 "DeepSeek Agent-9.14.24-Windows-Setup.exe"。
+  # 所以产物名用连字符字面量，显示名才用 productName。
+  artifactName: "DeepSeek-Agent-${version}-Windows-Setup.${ext}"
 
 nsis:
   # 助手式安装器：标准安装向导 + 可自选安装目录（对应 README 的对外承诺）。
@@ -99,7 +111,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: JackDSH
+  shortcutName: DeepSeek Agent
   # 卸载时不删用户数据目录（工作区、会话、模型授权都在 userData 下的 dsh-data），
   # 避免用户卸载重装时误丢工作区。
+  #
+  # ⚠️ 数据目录路径由 package.json 的 `name`（= jackdsh）决定，**不随 productName 改名**，
+  # 否则 %APPDATA%\jackdsh\dsh-data 里的工作区/会话/模型授权会全部「消失」。
+  # 详见 README「品牌名与内部标识」一节。
   deleteAppDataOnUninstall: false

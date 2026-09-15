@@ -1,7 +1,10 @@
-# 🚀 JackDSH
+# 🐳 DeepSeek Agent
 
 > **一个基于 DeepSeek Harness 官方框架打包的桌面客户端。**  
 > 免去手动安装 Node.js、配置运行环境与敲终端命令行的繁琐过程，下载安装包即可开箱运行，并内置了局域网手机遥控等自研实用插件。
+
+> ℹ️ 本发行版曾用名 **JackDSH**。改名只影响对外展示（窗口标题、安装包、快捷方式、应用和功能里的显示名），
+> **不影响已有数据**——详见下方[「品牌名与内部标识」](#-品牌名与内部标识)。
 
 ---
 
@@ -69,6 +72,35 @@
 
 ---
 
+## 🏷️ 品牌名与内部标识
+
+对外品牌名是 **DeepSeek Agent**，但仓库里有一批 `JackDSH` / `jackdsh` 字样的标识**属于内部契约，不能随改名一起换掉**。
+动它们会直接损坏老用户的数据或升级路径，改动前请先读这张表：
+
+| 标识 | 位置 | 为什么必须保留 |
+| :--- | :--- | :--- |
+| `"name": "jackdsh"` | `package.json` | Electron 的 `userData` 路径由它派生（`%APPDATA%\jackdsh`）。改了它，`dsh-data` 里的工作区、会话、模型授权会全部「消失」。**也不要为此调 `app.setName()`**，效果等价。 |
+| `# >>> JackDSH 托管区 …` / `# <<< JackDSH 托管区 <<<` | `server-manager.js` 写入 `cordis.patch.yml` | 重写托管补丁区时是**精确匹配**这两个标记。改了标记，老用户 profile 里的旧托管区摘不掉，新旧两块并存 → 补丁 id 重复。 |
+| `~/Documents/JackDSH`（及便携态的 `<dshHome>/JackDSH`） | `server-manager.js` 的当日工作区输出目录 | 插件 `dsh-today` 把该路径硬编码为「品牌标准根目录」并据此解析，改名会导致两边解析不一致。 |
+| `com.jackaistudio.jackdsh` | `electron-builder.yml` 的 `appId` | NSIS 卸载注册表键的 GUID 由 appId 派生。改了就生成新 GUID，老版本在「应用和功能」里的条目会变成删不掉的孤儿。 |
+| `github.com/JackAIStudio/JackDSH` | `src/main/index.js`、README 链接 | 仓库本身未改名。 |
+
+**要改的只有对外展示名**，入口是这两个：
+
+- `electron-builder.yml` → `productName`（安装包名、exe 名、快捷方式、「应用和功能」显示名都由它派生）
+- `src/main/index.js` → `APP_NAME` 常量（窗口标题、macOS 应用菜单、关于面板、弹窗标题）
+
+> 窗口标题上还有一处细节：网页底座自带 `<title>DeepSeek Harness</title>`，不拦会顶掉发行版名。
+> `page-title-updated` 里做的是**定向改写**（把底座名换成品牌名），不是整串覆盖——
+> 这样 `dsh-app-badge` 插件加在前面的未读计数前缀 `(3) …` 不会被丢掉。
+
+---
+
 ## 📄 开源许可
 
 本项目采用 [MIT 许可证](LICENSE) 开源。各引用插件及依赖库遵循其各自的开源许可协议。欢迎在 GitHub Issues 提交问题反馈与改进建议。
+
+> 🐳 **关于图标**：应用图标使用 DeepSeek 官方鲸鱼 Logo（品牌色 `#4D6BFE`），矢量路径取自官方站点。
+> **该 Logo 及其商标权利归 DeepSeek 所有**，本项目仅为「DeepSeek Harness 桌面客户端」的视觉标识沿用，
+> 不代表与 DeepSeek 官方存在隶属或背书关系；如官方提出异议，会立即替换为自制图标。
+

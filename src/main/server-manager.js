@@ -216,7 +216,7 @@ export class ServerManager {
       token: config.token,
       localPort: this.port,
       clientId: `jackdsh_${process.platform}`,
-      clientInfo: `JackDSH Desktop (${process.platform})`,
+      clientInfo: `DeepSeek Agent Desktop (${process.platform})`,
     })
     this.tunnelClient.on('connected', () => {
       console.log(`[ServerManager] Remote relay tunnel active! (${config.publicBaseUrl || config.server})`)
@@ -635,7 +635,7 @@ export class ServerManager {
     let stdoutBuffer = ''
 
     const logStream = createWriteStream(this.logFile, { flags: 'a' })
-    logStream.write(`\n[${new Date().toISOString()}] === JackDSH Core Starting on port ${this.port} ===\n`)
+    logStream.write(`\n[${new Date().toISOString()}] === DeepSeek Agent Core Starting on port ${this.port} ===\n`)
 
     this.authenticatedUrl = ''
     this.childProcess.stdout?.on('data', (data) => {

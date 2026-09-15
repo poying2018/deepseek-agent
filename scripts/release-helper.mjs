@@ -3,7 +3,7 @@
 /**
  * release-helper.mjs
  * 
- * JackDSH 发版中枢流水线
+ * DeepSeek Agent 发版中枢流水线
  * 包含：
  * 1. preflight: 全生态发版前门禁检查（插件 clean/pushed、manifest 对齐、当前仓状态）
  * 2. draft-notes: 自动提取自上次发版以来所有插件的 commit 记录，并生成 Release Notes 初稿
@@ -61,14 +61,14 @@ export async function runPreflight(options = {}) {
     }
   }
 
-  // 检查 JackDSH 自身仓库状态
-  console.log('🔍 [2/3] 正在检查 JackDSH 自身仓库状态...')
+  // 检查 DeepSeek Agent 自身仓库状态
+  console.log('🔍 [2/3] 正在检查 DeepSeek Agent 自身仓库状态...')
   const statusRes = await git(jackDshDir, ['status', '--porcelain'])
   const dshDirty = statusRes.ok && statusRes.stdout
     ? statusRes.stdout.split('\n').filter(Boolean)
     : []
   if (dshDirty.length > 0) {
-    warnings.push(`JackDSH 仓库自身有未提交的改动: ${dshDirty.slice(0, 3).join(', ')}`)
+    warnings.push(`DeepSeek Agent 仓库自身有未提交的改动: ${dshDirty.slice(0, 3).join(', ')}`)
   }
 
   // 检查已打包插件与清单对齐
@@ -144,9 +144,9 @@ export async function draftReleaseNotes(targetVersion, days = 7) {
   const version = targetVersion || currentPkg.version
   const changelog = await collectPluginsChangelog(days)
 
-  const template = `## 🚀 JackDSH v${version} 发布说明
+  const template = `## 🚀 DeepSeek Agent v${version} 发布说明
 
-欢迎使用 JackDSH 开箱即用桌面客户端全新版本 **v${version}**！  
+欢迎使用 DeepSeek Agent 开箱即用桌面客户端全新版本 **v${version}**！  
 本次更新全面同步了自研插件生态的最新能力，修复了多项关键体验问题，并对系统稳定性与跨平台构建进行了系统性加固。
 
 ---
@@ -161,11 +161,11 @@ ${item.commits.map((c) => `- ${c}`).join('\n')}
 
 ### 📥 客户端下载
 
-- **macOS (Apple Silicon arm64)**: \`JackDSH-${version}-Mac-arm64.dmg\`
-- **Windows 标准安装包 (x64)**: \`JackDSH-${version}-Windows-Setup.exe\`
+- **macOS (Apple Silicon arm64)**: \`DeepSeek-Agent-${version}-Mac-arm64.dmg\`
+- **Windows 标准安装包 (x64)**: \`DeepSeek-Agent-${version}-Windows-Setup.exe\`
 
 ---
-*由 JackDSH Release Helper 自动提炼生成。*
+*由 DeepSeek Agent Release Helper 自动提炼生成。*
 `
   return { version, template, changelog }
 }
@@ -222,7 +222,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       process.exit(1)
     }
     const { oldVersion, newVersion } = bumpVersion(nextVer)
-    console.log(`✅ JackDSH 版本已从 v${oldVersion} 递增至 v${newVersion}`)
+    console.log(`✅ DeepSeek Agent 版本已从 v${oldVersion} 递增至 v${newVersion}`)
   } else {
     console.log(`用法: node release-helper.mjs [preflight | draft-notes <ver> | bump <ver>]`)
   }

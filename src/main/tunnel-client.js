@@ -7,7 +7,7 @@ export class TunnelClient extends EventEmitter {
    * @param {Object} options
    * @param {string} options.relayServer - e.g. "wss://relay.example.com/relay/tunnel"
    * @param {string} options.token - authentication token
-   * @param {number} options.localPort - local port of JackDSH (e.g. 3180)
+   * @param {number} options.localPort - local port of DeepSeek Agent (e.g. 3180)
    * @param {string} [options.clientId] - client identity
    * @param {string} [options.clientInfo] - client description
    */
@@ -17,7 +17,7 @@ export class TunnelClient extends EventEmitter {
     this.token = (options.token || '').trim()
     this.localPort = options.localPort
     this.clientId = options.clientId || `jackdsh_${Math.random().toString(36).slice(2, 8)}`
-    this.clientInfo = options.clientInfo || `JackDSH Desktop (${process.platform})`
+    this.clientInfo = options.clientInfo || `DeepSeek Agent Desktop (${process.platform})`
 
     this.ws = null
     this.stopped = false
@@ -161,7 +161,7 @@ export class TunnelClient extends EventEmitter {
   handleReqStart(msg) {
     const { reqId, method, url, headers } = msg
 
-    // 转发请求到本地 JackDSH 实例
+    // 转发请求到本地 DeepSeek Agent 实例
     const targetHeaders = { ...headers }
     // 确保保留原公网 Host 或在本地能够正确识别
     targetHeaders['host'] = headers['host'] || `127.0.0.1:${this.localPort}`

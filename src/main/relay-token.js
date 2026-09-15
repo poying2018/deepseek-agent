@@ -1,6 +1,6 @@
 /**
 /**
- * JackDSH 公网中转口令（Magic Token）编码与解析工具
+ * DeepSeek Agent 公网中转口令（Magic Token）编码与解析工具
  * 支持以下格式：
  * 1. URL Schema: jds://relay?s=<server>&t=<token>&p=<publicBaseUrl>
  * 2. 紧凑 Base64: jds-relay:<base64-json>

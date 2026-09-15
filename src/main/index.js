@@ -11,6 +11,18 @@ augmentGlobalPath()
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+/**
+ * 对外品牌名（窗口标题 / 关于面板 / 与应用名相关的文案统一走这里）。
+ *
+ * ⚠️ 注意与 electron-builder.yml 的 productName 保持同步；安装包名、开始菜单/桌面
+ * 快捷方式、exe 名、以及「应用和功能」里的显示名都由 productName 决定，不读这个常量。
+ *
+ * ⚠️ 更不要为了改名去调 app.setName()：Electron 的 userData 路径派生自
+ * app.getName()，改了它，%APPDATA%\jackdsh\dsh-data 里的工作区/会话/模型授权
+ * 会全部「消失」。package.json 的 name 与它必须保持为 jackdsh。
+ */
+const APP_NAME = 'DeepSeek Agent'
+
 let mainWindow = null
 let serverManager = null
 let serverUrl = ''
@@ -34,13 +46,13 @@ async function checkDataDirectory(userDataPath) {
       configuredPath = raw || null
     } catch (error) {
       // 配置损坏不是致命错误：退回默认目录继续启动，只留一条日志
-      console.warn(`[JackDSH] dsh-home.json 读取失败，回退默认数据目录: ${error.message}`)
+      console.warn(`[DeepSeek Agent] dsh-home.json 读取失败，回退默认数据目录: ${error.message}`)
     }
 
     if (configuredPath && !existsSync(configuredPath)) {
       const choice = await dialog.showMessageBox({
         type: 'warning',
-        title: 'JackDSH - 数据存储目录未就绪',
+        title: `${APP_NAME} - 数据存储目录未就绪`,
         message: '未检测到配置的数据存储路径',
         detail: `当前配置的存储路径不可访问：\n${configuredPath}\n\n如果你使用的是外接移动硬盘，请连接后再点击「重试」；或者你可以选择临时使用本机默认目录启动。`,
         buttons: ['重试', '临时使用默认目录', '退出应用'],
@@ -215,7 +227,7 @@ function setupMacWindowDrag(win) {
         })()
       `).catch(() => {})
     } catch (err) {
-      console.warn('[JackDSH] Failed to inject mac titlebar style:', err.message)
+      console.warn('[DeepSeek Agent] Failed to inject mac titlebar style:', err.message)
     }
   }
 
@@ -229,7 +241,9 @@ function setupApplicationMenu(win) {
     ...(isMac
       ? [
           {
-            label: app.name,
+            // 用 APP_NAME 而非 app.name：app.name 取自 package.json 的 name（= jackdsh，
+            // 为保住 userData 路径不能改），直接用它 macOS 菜单栏会显示成小写内部名。
+            label: APP_NAME,
             submenu: [
               { role: 'about' },
               { type: 'separator' },
@@ -444,7 +458,7 @@ async function createWindow() {
     height: 850,
     minWidth: 900,
     minHeight: 600,
-    title: 'JackDSH',
+    title: APP_NAME,
     backgroundColor: '#18181b',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 12 } : undefined,
@@ -457,6 +471,17 @@ async function createWindow() {
 
   setupMacWindowDrag(mainWindow)
   setupApplicationMenu(mainWindow)
+
+  // 网页底座自带 <title>DeepSeek Harness</title>，不拦就会顶掉窗口标题，
+  // 任务栏/窗口标题里永远看不到发行版品牌名。这里拦下来做**定向改写**：
+  //   · 把底座名 DeepSeek Harness 换成品牌名；
+  //   · 保留 dsh-app-badge 插件加在前面的未读计数前缀，如 "(3) DeepSeek Agent"。
+  // 不做整串覆盖，是为了不丢掉其他动态标题（会话名等）。
+  mainWindow.webContents.on('page-title-updated', (event, title) => {
+    event.preventDefault()
+    const renamed = String(title || '').replace(/DeepSeek\s+Harness/g, APP_NAME)
+    mainWindow?.setTitle(renamed.trim() || APP_NAME)
+  })
 
   // 外部链接默认用系统默认浏览器打开
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -489,7 +514,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   try {
     app.setAboutPanelOptions({
-      applicationName: 'JackDSH',
+      applicationName: APP_NAME,
       applicationVersion: `v${app.getVersion()}`,
       version: 'DeepSeek Harness 底座 v0.1.2-rc.1',
       copyright: 'JackAIStudio · 基于 DeepSeek Harness 官方框架构建',
@@ -497,13 +522,13 @@ app.whenReady().then(async () => {
     await checkDataDirectory(app.getPath('userData'))
     await createWindow()
   } catch (err) {
-    console.error('[JackDSH Fatal]', err)
+    console.error('[DeepSeek Agent Fatal]', err)
     const logPath = serverManager?.logFile || ''
     const dshHome = serverManager?.dshHome || ''
 
     const choice = await dialog.showMessageBox({
       type: 'error',
-      title: 'JackDSH 启动遇到异常',
+      title: `${APP_NAME} 启动遇到异常`,
       message: '后台服务未能正常就绪',
       detail: `${err.message}\n\n可能存在端口占用、网络代理或旧版配置冲突。建议点击下方按钮查看运行日志排错。`,
       buttons: ['查看运行日志', '打开数据目录自检', '退出应用'],

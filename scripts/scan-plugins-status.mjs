@@ -3,14 +3,14 @@
 /**
  * scan-plugins-status.mjs
  * 
- * JackDSH 插件生态 Git 同步状态秒级并发扫描引擎
+ * DeepSeek Agent 插件生态 Git 同步状态秒级并发扫描引擎
  * 用于快速排查 ~/Documents/dshspace/plugins 下所有自研插件的：
  * 1. 工作区未提交改动 (isDirty / dirtyCount)
  * 2. 待推送到 GitHub 的提交 (ahead)
  * 3. 待拉取的远程更新 (behind，支持 --fetch 探测)
  * 4. 当前分支是否为主干 main
  * 5. package.json 声明版本号
- * 6. 与 JackDSH/plugins.manifest.yaml 的对齐状态
+ * 6. 与 DeepSeek Agent/plugins.manifest.yaml 的对齐状态
  */
 
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
@@ -208,7 +208,7 @@ export function formatAsMarkdown(scanResult) {
   const { summary, categories, total } = scanResult
   const lines = []
 
-  lines.push(`### 📊 JackDSH 插件 GitHub 同步大盘`)
+  lines.push(`### 📊 DeepSeek Agent 插件 GitHub 同步大盘`)
   lines.push(`**插件总数**: ${total} ｜ 🟢 **完全同步**: ${summary.syncedCount} ｜ 🚨 **未提交**: ${summary.dirtyCount} ｜ ⬆️ **待推送**: ${summary.aheadCount} ｜ ⬇️ **待拉取**: ${summary.behindCount}`)
   lines.push('')
 
@@ -271,7 +271,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         console.log(formatAsMarkdown(result))
       } else {
         // 友好彩色输出
-        console.log(`\n📦 JackDSH 插件生态 Git 同步扫描 (${elapsed}ms)`)
+        console.log(`\n📦 DeepSeek Agent 插件生态 Git 同步扫描 (${elapsed}ms)`)
         console.log(`--------------------------------------------------`)
         console.log(`总计: ${result.total} 个插件 ｜ 同步: \x1b[32m${result.summary.syncedCount}\x1b[0m ｜ 未提交: \x1b[33m${result.summary.dirtyCount}\x1b[0m ｜ 待推送: \x1b[34m${result.summary.aheadCount}\x1b[0m ｜ 待拉取: \x1b[35m${result.summary.behindCount}\x1b[0m\n`)
 
