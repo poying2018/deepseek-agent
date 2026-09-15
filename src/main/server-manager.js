@@ -660,7 +660,7 @@ export class ServerManager {
       this.childProcess = null
     })
 
-    // 等待服务启动并捕获带 token 的认证 URL（通常在 1~2 秒内输出）
+    // 等待服务启动并捕获带 token 的认证 URL（热启动通常 1~3 秒内输出）
     const tokenStart = Date.now()
     while (Date.now() - tokenStart < 15000) {
       if (authenticatedUrl) break
@@ -673,14 +673,55 @@ export class ServerManager {
       throw new Error(exitMsg)
     }
 
-    // 确保服务端口已就绪
-    const ready = await this.waitForHttpReady(serverUrl, 5000)
+    // 确保服务端口已就绪（判据与缘由见 awaitCoreReady 的注释）
+    const ready = await this.awaitCoreReady(serverUrl, authenticatedUrl)
+
     if (!ready && !authenticatedUrl) {
-      throw new Error('服务就绪探测超时，未能建立 HTTP 连接')
+      const exitMsg =
+        this.lastExitCode !== null
+          ? `底层核心服务异常退出 (退出码: ${this.lastExitCode})`
+          : '服务就绪探测超时，未能建立 HTTP 连接'
+      throw new Error(exitMsg)
     }
 
     // 公网中转隧道由内置的 dsh-mobile-plus 原生 RelayBridge 统一托管，避免 Electron 主进程产生重复竞争连接
     return authenticatedUrl || serverUrl
+  }
+
+  /**
+   * 等核心 HTTP 就绪。
+   *
+   * 为什么不能按固定短窗口判失败：**全新安装后的第一次启动**要额外付出
+   * 「杀毒软件实时扫描刚写盘的 200MB+ 文件」的代价。实测同一份产物，
+   * 首次启动可超过 20 秒才就绪，而之后每次只要 2~3 秒（连全新数据目录重建
+   * profile 也只要 2 秒）。若此时直接抛错，用户会在服务其实已经起来的情况下
+   * 看到「后台服务未能正常就绪」弹窗，且主窗口干脆不创建 —— 恰好砸在每个
+   * 新用户必经的那一次启动上。
+   *
+   * 判据因此改成：**只要子进程还活着就继续等**。真正的失败信号是子进程退出
+   * （start() 的 exit 分支会把 this.childProcess 置空），而不是「等得不够久」。
+   * 同时给一个总预算上限，避免核心卡死时无限挂起。
+   *
+   * @param {string} serverUrl 探测目标
+   * @param {string|null} authenticatedUrl 已捕获到的带 token URL（有则直接算就绪）
+   * @param {number} [budgetMs] 总预算上限（可注入，便于测试）
+   * @returns {Promise<boolean>} 是否已就绪
+   */
+  async awaitCoreReady(serverUrl, authenticatedUrl = null, budgetMs = 90000) {
+    if (authenticatedUrl) return true
+
+    const SLICE_MS = 5000
+    const readyStart = Date.now()
+    let ready = false
+
+    while (true) {
+      ready = await this.waitForHttpReady(serverUrl, SLICE_MS)
+      if (ready) break
+      if (this.childProcess === null) break // 核心已退出，再等没有意义
+      if (Date.now() - readyStart >= budgetMs) break
+    }
+
+    return ready
   }
 
   /**
