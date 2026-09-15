@@ -44,6 +44,8 @@ export class ServerManager {
     this.lastExitCode = null
     this.relayConfigFile = join(this.dshHome, 'remote-relay.json')
     this.tunnelClient = null
+    // 核心启动时打印的带 token 认证地址（见 awaitAuthToken 的成因说明）
+    this.authenticatedUrl = ''
   }
 
   /**
@@ -630,21 +632,21 @@ export class ServerManager {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
-    let authenticatedUrl = ''
     let stdoutBuffer = ''
 
     const logStream = createWriteStream(this.logFile, { flags: 'a' })
     logStream.write(`\n[${new Date().toISOString()}] === JackDSH Core Starting on port ${this.port} ===\n`)
 
+    this.authenticatedUrl = ''
     this.childProcess.stdout?.on('data', (data) => {
       const text = data.toString()
       console.log(`[DSH-Core] ${text.trim()}`)
       logStream.write(data)
       stdoutBuffer += text
       const match = stdoutBuffer.match(/dsh web:\s+(https?:\/\/[^\s\(\)]+)/i)
-      if (match && !authenticatedUrl) {
-        authenticatedUrl = match[1]
-        console.log(`[ServerManager] Detected 0.1.2 authenticated startup URL with token: ${authenticatedUrl}`)
+      if (match && !this.authenticatedUrl) {
+        this.authenticatedUrl = match[1]
+        console.log(`[ServerManager] Detected 0.1.2 authenticated startup URL with token: ${this.authenticatedUrl}`)
       }
     })
 
@@ -660,13 +662,10 @@ export class ServerManager {
       this.childProcess = null
     })
 
-    // 等待服务启动并捕获带 token 的认证 URL（热启动通常 1~3 秒内输出）
-    const tokenStart = Date.now()
-    while (Date.now() - tokenStart < 15000) {
-      if (authenticatedUrl) break
-      if (this.childProcess === null) break
-      await new Promise((r) => setTimeout(r, 200))
-    }
+    // 捕获带 token 的认证 URL（判据与实测缘由见 awaitAuthToken 的注释）
+    await this.awaitAuthToken(90000)
+
+    const authenticatedUrl = this.authenticatedUrl
 
     if (!authenticatedUrl && this.childProcess === null) {
       const exitMsg = this.lastExitCode !== null ? `底层核心服务异常退出 (退出码: ${this.lastExitCode})` : '底层核心服务未能成功启动'
@@ -686,6 +685,38 @@ export class ServerManager {
 
     // 公网中转隧道由内置的 dsh-mobile-plus 原生 RelayBridge 统一托管，避免 Electron 主进程产生重复竞争连接
     return authenticatedUrl || serverUrl
+  }
+
+  /**
+   * 等核心 stdout 打印出带 token 的认证地址（`dsh web: http://127.0.0.1:PORT/?token=...`）。
+   *
+   * 为什么不能按固定短窗口：历史上这里是 15 秒硬上限，超时就回退到**不带 token 的
+   * 地址**。而窗口一旦 loadURL 到无 token 地址，页面只会显示
+   *   dsh web authentication required; reopen the URL printed by dsh web
+   * 并且**不会自愈**——正常用户根本无处拿到那个地址，等于应用打不开。
+   *
+   * 同一台机器、同一份产物的实测对照：
+   *   · 已安装 + 系统空闲（热启动）  → 2.40s 拿到 token，窗口正常；
+   *   · 全新安装后立刻启动（冷启动） → **39.75s** 才拿到 token，旧逻辑早已超时 → 白屏。
+   * 冷启动慢是「杀毒软件实时扫描刚解包出来的 200MB+」+ 首次建 profile 的代价，
+   * 每个新用户第一次打开都要经历一次，正好砸在最关键的路径上。
+   *
+   * 判据与 awaitCoreReady 保持一致：**只要子进程还活着就继续等**，真正的失败信号
+   * 是子进程退出；另给总预算上限，避免核心卡死时无限挂起。预算是可注入参数，
+   * 便于用纯逻辑单测覆盖（见 scripts/check-startup-readiness.mjs）。
+   *
+   * @param {number} [budgetMs] 总预算（毫秒）
+   * @returns {Promise<boolean>} 是否在预算内捕获到带 token 的地址
+   */
+  async awaitAuthToken(budgetMs = 90000) {
+    const startedAt = Date.now()
+    while (!this.authenticatedUrl) {
+      // 子进程已退出 ⇒ 不可能再打印了，快速失败，别空等预算
+      if (this.childProcess === null) return false
+      if (Date.now() - startedAt >= budgetMs) return false
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    return true
   }
 
   /**
