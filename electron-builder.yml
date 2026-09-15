@@ -70,9 +70,22 @@ mac:
   gatekeeperAssess: false
 
 win:
-  # Windows 仅提供纯净绿色免安装便携版（解压即用、零污染注册表、适合随身携带与安全审计）
+  # Windows 仅提供 NSIS 标准安装包（单一交付物）。
+  # 历史沿革：早期曾同时提供「绿色免安装便携版 zip」，现已移除——双产物意味着
+  # 两条安装路径要各自验证（解压路径 vs 注册表卸载路径），而便携模式的能力
+  # （数据落在程序目录、U 盘即用）由运行期 --portable / DSH_PORTABLE 提供，
+  # 与「产物形态」无关，装完照样可以用便携模式，故不需要额外的 zip 产物。
   target:
-    - target: zip
+    - target: nsis
       arch:
         - x64
-  artifactName: "${productName}-${version}-Windows-portable.${ext}"
+  artifactName: "${productName}-${version}-Windows-Setup.${ext}"
+
+# ⚠️ 这里**故意不写 nsis: 段**，即沿用 electron-builder 的默认安装器（oneClick）。
+# 实测（2026-09-15）：一旦显式声明 oneClick: false（助手式/带向导），产物在
+# 静默安装（/S）时会以 STATUS_ACCESS_VIOLATION (0xC0000005) 崩溃——目录被
+# .onInit 里的 SetOutPath 建出来、随即进程死亡，装不上任何文件：
+#   node spawn → status=3221225477 (0xC0000005)，$INSTDIR 为空目录
+# 而默认（oneClick）安装器的同一条路径全链路验证通过（静默安装 → 启动 →
+# 工作区可选中 → 静默卸载 → 零残留）。要改回向导式，必须先定位该崩溃，
+# 不要只凭「README 这么写」就把 nsis 段加回来。

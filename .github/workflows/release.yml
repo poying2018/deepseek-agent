@@ -82,7 +82,7 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: node scripts/build.js --mac
 
-      - name: Build Windows Artifacts (Portable .zip)
+      - name: Build Windows Artifacts (NSIS .exe)
         if: matrix.os == 'windows-latest'
         run: node scripts/build.js --win
 
@@ -115,4 +115,4 @@ jobs:
             --title "🚀 JackDSH ${{ github.ref_name }}" \
             $NOTES_ARG \
             --draft=false 2>/dev/null || true
-          gh release upload "${{ github.ref_name }}" release/*.zip --clobber
+          gh release upload "${{ github.ref_name }}" release/*.exe --clobber

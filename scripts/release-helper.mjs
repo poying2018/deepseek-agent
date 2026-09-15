@@ -162,7 +162,7 @@ ${item.commits.map((c) => `- ${c}`).join('\n')}
 ### 📥 客户端下载
 
 - **macOS (Apple Silicon arm64)**: \`JackDSH-${version}-Mac-arm64.dmg\`
-- **Windows 绿色免安装便携版 (x64)**: \`JackDSH-${version}-Windows-portable.zip\`
+- **Windows 标准安装包 (x64)**: \`JackDSH-${version}-Windows-Setup.exe\`
 
 ---
 *由 JackDSH Release Helper 自动提炼生成。*
