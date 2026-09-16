@@ -411,6 +411,14 @@ export async function planCoreUpdate(targetVersion, options = {}) {
       externalMissing: [...externalMissing.keys()],
     }
   }
+
+  // 插件兼容性：**不拦死更新**，只算出要对哪些内置插件做停用/恢复。
+  // 见 planPluginAdjustments 的说明——为一个可选插件放弃整个内核升级不合理。
+  const pluginAdjust = planPluginAdjustments(targetVersion)
+  if (pluginAdjust.disable.length > 0) {
+    console.warn('[core-updater] 将停用与目标内核不兼容的插件:',
+      pluginAdjust.disable.map((p) => `${p.name}(${p.reason})`).join(', '))
+  }
   if (chosen.size === 0) return { ok: false, error: '没有解析出任何需要更新的包。' }
 
   // 独立版本线的缺失包：按声明范围解析，并单独取一次下载地址
@@ -448,6 +456,7 @@ export async function planCoreUpdate(targetVersion, options = {}) {
     count: packages.length,
     added: packages.filter((p) => p.from === null).length,
     retired, // 目标版本已下架、本次跳过的旧包
+    pluginAdjust, // { disable: [{name,reason}], enable: [...] }
     unpackedSize: packages.reduce((sum, p) => sum + p.unpackedSize, 0),
   }
 }
@@ -546,6 +555,122 @@ function movePath(from, to) {
  */
 function backupRoot(oldVersion) {
   return join(appNodeModulesDir(), '..', '.dsh-core-backup', oldVersion)
+}
+
+// ---------------------------------------------------------------- 插件兼容性调整
+
+function pluginsRootDir() {
+  return join(appNodeModulesDir(), '..', 'runtime', 'plugins')
+}
+
+/** 列出插件目录（含 @scope）。`disabled:true` 时列出的是被改名停用的那批。 */
+function listPluginDirs(root, { disabled = false } = {}) {
+  const out = []
+  if (!existsSync(root)) return out
+  const prefix = '.disabled-'
+  const want = (name) => (disabled ? name.startsWith(prefix) : !name.startsWith(prefix))
+  const strip = (name) => (name.startsWith(prefix) ? name.slice(prefix.length) : name)
+
+  for (const entry of readdirSync(root)) {
+    if (entry.startsWith('@') && !entry.startsWith(prefix)) {
+      // ⚠️ scoped 插件也必须按停用状态过滤：否则正常启用的 @scope/name
+      // 会同时出现在「待停用」和「待恢复」两个列表里（实测踩过）。
+      for (const sub of readdirSync(join(root, entry))) {
+        if (!want(sub)) continue
+        out.push({ rel: `${entry}/${strip(sub)}`, dir: join(root, entry, sub) })
+      }
+      continue
+    }
+    if (!want(entry)) continue
+    out.push({ rel: strip(entry), dir: join(root, entry), leaf: entry })
+  }
+  return out
+}
+
+/**
+ * 某个插件目录是否声明支持目标内核版本。
+ *
+ * 只信插件作者的**显式声明** `compatibility.json` 的 `dsh.verifiedVersions`。
+ *
+ * ⚠️ 不要拿 peerDependencies 的范围去推断：预发布版本在 semver 里有特殊语义，
+ * 实测 `>=0.1.1-rc.1 <1.0.0` 并不匹配 `0.1.2-rc.1`（范围里没有 0.1.2 这个 tuple
+ * 的预发布基线），于是连本发行版实测可用的 0.1.2-rc.1 都会被误判成不兼容。
+ * 宁可漏报（交给启动冒烟验证兜底）也不要误报。
+ *
+ * @returns {{declared:boolean, ok:boolean, reason?:string}}
+ */
+function pluginSupportsCore(dir, targetVersion) {
+  const compatPath = join(dir, 'compatibility.json')
+  if (!existsSync(compatPath)) return { declared: false, ok: true }
+  let list = []
+  try {
+    const c = JSON.parse(readFileSync(compatPath, 'utf8'))
+    list = (c && c.dsh && Array.isArray(c.dsh.verifiedVersions)) ? c.dsh.verifiedVersions : []
+  } catch {
+    return { declared: false, ok: true }
+  }
+  if (list.length === 0) return { declared: false, ok: true }
+
+  // 兼容判定：**核心三位版本号相同**即视为兼容（忽略 -rc/-alpha 后缀）。
+  // ⚠️ 不能用 major.minor 判「同线」：本生态是 0.x，`0.1.2` 与 `0.1.5` 的
+  // major.minor 都是 `0.1`，会把跨线当同线。真正有意义的单位是第三位。
+  // 例：声明 "0.1.2-alpha.3" + 本发行版 0.1.2-rc.1 → 核心同为 0.1.2 → 兼容；
+  //     目标 0.1.5-rc.1 → 核心不同 → 不兼容（正是要拦的）。
+  const ok = list.some((v) => {
+    if (v === targetVersion) return true
+    try {
+      if (semver.validRange(v) && semver.satisfies(targetVersion, v)) return true
+      const a = semver.parse(v)
+      const b = semver.parse(targetVersion)
+      return a && b && a.major === b.major && a.minor === b.minor && a.patch === b.patch
+    } catch { return false }
+  })
+  return { declared: true, ok, reason: `仅验证到 ${list.join(' / ')}` }
+}
+
+/**
+ * 算出这次内核更新要对**内置插件**做的调整。
+ *
+ * 设计取舍：**不因为插件不兼容就拦死整个更新**。实测 0.1.5-rc.1 上只是
+ * `dsh-codex-timeline` 的 `/codex-timeline/search` 接口 500（它只验证到 0.1.2-alpha.3），
+ * 内核本身活得好好的 —— 为一个可选插件放弃整个内核升级并不合理。
+ * 所以改成：**放行 + 自动停用不兼容的插件**（把插件目录改名成 `.disabled-<名>`，
+ * 运行期即失效，且 `initIsolatedProfile` 的自愈逻辑会把它们从 profile.bundles 清掉），
+ * 并顺手把上一轮停用、这次已兼容的插件恢复回来。
+ *
+ * @returns {{disable:Array<{name:string,reason:string}>, enable:string[]}}
+ */
+export function planPluginAdjustments(targetVersion) {
+  const root = pluginsRootDir()
+  const disable = []
+  const enable = []
+
+  for (const item of listPluginDirs(root)) {
+    const verdict = pluginSupportsCore(item.dir, targetVersion)
+    if (verdict.declared && !verdict.ok) disable.push({ name: item.rel, reason: verdict.reason })
+  }
+  for (const item of listPluginDirs(root, { disabled: true })) {
+    const verdict = pluginSupportsCore(item.dir, targetVersion)
+    if (!verdict.declared || verdict.ok) enable.push(item.rel)
+  }
+  return { disable, enable }
+}
+
+/** 改名实现停用/恢复，支持 @scope/name。返回可用于回滚的 { from, to }，失败返回 null。 */
+function setPluginEnabled(pluginName, enabled) {
+  const root = pluginsRootDir()
+  const parts = pluginName.split('/')
+  const parent = parts.length === 2 ? join(root, parts[0]) : root
+  const leaf = parts.length === 2 ? parts[1] : pluginName
+  const from = join(parent, enabled ? `.disabled-${leaf}` : leaf)
+  const to = join(parent, enabled ? leaf : `.disabled-${leaf}`)
+  if (!existsSync(from) || existsSync(to)) return null
+  try {
+    renameSync(from, to)
+    return { from, to }
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------- 兼容补丁
@@ -651,6 +776,7 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
   // 否则失败正好卡在这两步之间时，备份不会进入回滚列表 → 原目录改名后没人还回去，
   // 内核就少了一个包（实测踩过：@deepseek-ai/dsh 变成 dsh.bak-<ver> 后再也没还原）。
   const touched = []
+  const pluginUndo = [] // 插件改名的 (from,to)，失败回滚时原样改回
   try {
     for (const pkg of plan.packages) {
       const short = pkg.name.slice(CORE_SCOPE.length + 1)
@@ -693,6 +819,20 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     }
     if (bad.length > 0) throw new Error(`落地校验未通过：${bad.slice(0, 6).join(', ')}`)
 
+    // 停用不兼容 / 恢复已兼容的内置插件。
+    // 放在启动验证**之前**——这样验证的就是升级完成后的真实状态。
+    // 改名成 `.disabled-<名>` 后运行期即失效，且 initIsolatedProfile 的自愈逻辑
+    // 会把它们从 profile.bundles 里清掉；等以后内核兼容了会自动恢复。
+    const adjust = plan.pluginAdjust || { disable: [], enable: [] }
+    for (const item of adjust.disable) {
+      const done = setPluginEnabled(item.name, false)
+      if (done) pluginUndo.push(done)
+    }
+    for (const name of adjust.enable) {
+      const done = setPluginEnabled(name, true)
+      if (done) pluginUndo.push(done)
+    }
+
     // 启动冒烟验证：文件都对，不代表内核真能起来。这一步是唯一能证明
     // 「这次更新没把应用搞坏」的办法（详见 verifyCoreBoots 的说明）。
     if (typeof options.verifyBoot === 'function') {
@@ -705,7 +845,10 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
       }
     }
   } catch (error) {
-    // 回滚：倒序把 touched 里每一项还原（先清掉可能已落地的内容，再把备份移回来）
+    // 回滚：先把插件改名原样改回，再倒序把 touched 里每一项还原
+    for (const item of pluginUndo.reverse()) {
+      try { if (existsSync(item.to) && !existsSync(item.from)) renameSync(item.to, item.from) } catch {}
+    }
     const failed = []
     for (const item of touched.reverse()) {
       try { rmSync(item.live, { recursive: true, force: true }) } catch {}
@@ -736,6 +879,8 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     backups: touched.filter((t) => t.backup).map((t) => t.backup),
     backupRoot: backupRoot(plan.currentVersion),
     compat,
+    disabledPlugins: (plan.pluginAdjust && plan.pluginAdjust.disable) || [],
+    reenabledPlugins: (plan.pluginAdjust && plan.pluginAdjust.enable) || [],
   }
 }
 

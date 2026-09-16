@@ -132,6 +132,7 @@ window.__ModuleLoader__.load({
         coreStageVerify: '正在验证内核能否启动…',
         coreDone: (from, to) => `内核已从 ${from} 更新到 ${to}。`,
         coreRestart: '请重启应用以应用更新。当前运行的仍是旧内核，重启后生效。',
+        coreDisabled: (list) => `以下插件未声明支持该内核，已自动停用（可逆）：${list}。`,
         coreSource: '来源：npm 官方源 @deepseek-ai/dsh',
       },
       en: {
@@ -170,6 +171,7 @@ window.__ModuleLoader__.load({
         coreStageVerify: 'Verifying the kernel boots…',
         coreDone: (from, to) => `Core updated from ${from} to ${to}.`,
         coreRestart: 'Restart the app to apply the update. The running kernel is still the old one.',
+        coreDisabled: (list) => `These plugins do not declare support for this kernel and were disabled: ${list}.`,
         coreSource: 'Source: official npm registry @deepseek-ai/dsh',
       },
     }
@@ -451,6 +453,9 @@ window.__ModuleLoader__.load({
           ? h('div', null,
             h('p', { className: 'duc-state is-available' }, t.coreDone(done.from, done.to)),
             h('p', { className: 'duc-restart', role: 'status' }, t.coreRestart),
+            (done.disabledPlugins && done.disabledPlugins.length)
+              ? h('p', { className: 'duc-state is-latest' }, t.coreDisabled(done.disabledPlugins.map((d) => d.name).join('、')))
+              : null,
           )
           : null,
 
