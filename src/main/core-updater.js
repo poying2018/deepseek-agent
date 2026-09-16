@@ -17,7 +17,7 @@
 
 import { app } from 'electron'
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
+  cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -48,8 +48,27 @@ function coreScopeDir() {
   return join(appNodeModulesDir(), CORE_SCOPE)
 }
 
+/**
+ * 暂存区位置：**优先放在目标所在的分区**。
+ *
+ * 为什么：应用常常装在 D 盘（`D:\dsh\DeepSeek Agent`），而 `userData` 在 C 盘的
+ * `%APPDATA%`。跨盘的 `rename()` 会抛 EXDEV，只能退化成「复制 + 删除」——
+ * 214 个包要白复制几百 MB。把暂存区放到 `resources/node_modules/.dsh-core-update/`
+ * 就让最后那步是同盘 rename，瞬时完成。
+ *
+ * 目录名以点开头，且不在 `@deepseek-ai/` 下，不会被 `listInstalledCorePackages()` 误认成已装包。
+ * 应用目录不可写时（如 macOS 的 /Applications）自动退回 userData——此时靠 movePath 的跨盘回落兜底。
+ */
 function stagingRoot(targetVersion) {
-  return join(app.getPath('userData'), 'core-update', targetVersion)
+  const beside = join(appNodeModulesDir(), '.dsh-core-update')
+  try {
+    mkdirSync(beside, { recursive: true })
+    writeFileSync(join(beside, '.probe'), '')
+    rmSync(join(beside, '.probe'), { force: true })
+    return join(beside, targetVersion)
+  } catch {
+    return join(app.getPath('userData'), 'core-update', targetVersion)
+  }
 }
 
 // ---------------------------------------------------------------- 本机内核
@@ -306,16 +325,35 @@ export async function downloadCoreUpdate(plan, onProgress) {
 // ---------------------------------------------------------------- 就地替换
 
 /**
+ * 移动目录，**允许跨盘**。
+ *
+ * ⚠️ 这个包装是必须的，不是防御性编程：应用很可能装在 D 盘
+ * （如 `D:\dsh\DeepSeek Agent`），而暂存区在 `%APPDATA%`（C 盘）。
+ * 此时 `rename()` 会直接抛 `EXDEV: cross-device link not permitted`——
+ * 实测就是这么炸的。跨盘时退回「递归复制 + 删源」。
+ */
+function movePath(from, to) {
+  try {
+    renameSync(from, to)
+    return
+  } catch (error) {
+    if (!error || error.code !== 'EXDEV') throw error
+  }
+  cpSync(from, to, { recursive: true, force: true, dereference: true })
+  rmSync(from, { recursive: true, force: true })
+}
+
+/**
  * 把暂存区替换进应用目录。
  *
- * 顺序：逐个 `原名 → 原名.bak-<oldver>`（备份）→ `暂存 → 原名`。
- * 任一步失败，把已替换的包**全部回滚**再返回错误——宁可保持旧内核，不可留混版。
+ * 顺序（**逐个包**进行，不是先全备份再全替换）：备份 → 换新 → 下一个。
+ * 任一步失败，把已动过的**全部还原**再返回错误——宁可保持旧内核，不可留混版。
  *
  * @param {object} plan
  * @param {string} stagedDir
- * @param {() => Promise<void>} [beforeApply] 替换前调用（用来先停掉内核进程）
+ * @param {{onProgress?: (p:{done:number,total:number,percent:number}) => void}} [options]
  */
-export async function applyCoreUpdate(plan, stagedDir, beforeApply) {
+export async function applyCoreUpdate(plan, stagedDir, options = {}) {
   if (!plan || plan.ok !== true || !stagedDir) return { ok: false, error: '更新计划无效。' }
   const scopeDir = coreScopeDir()
   if (!existsSync(scopeDir)) return { ok: false, error: '找不到已安装的内核目录。' }
@@ -328,10 +366,14 @@ export async function applyCoreUpdate(plan, stagedDir, beforeApply) {
     return { ok: false, error: '应用目录不可写（macOS 装在 /Applications 时需管理员权限），已放弃。' }
   }
 
-  if (typeof beforeApply === 'function') await beforeApply()
+  const onProgress = options.onProgress
+  const total = plan.packages.length
+  let done = 0
 
-  const backups = []
-  const applied = []
+  // ⚠️ 这里记录的是「已经动过的包」，必须在**备份之后、换新之前**就 push。
+  // 否则失败正好卡在这两步之间时，备份不会进入回滚列表 → 原目录改名后没人还回去，
+  // 内核就少了一个包（实测踩过：@deepseek-ai/dsh 变成 dsh.bak-<ver> 后再也没还原）。
+  const touched = []
   try {
     for (const pkg of plan.packages) {
       const short = pkg.name.slice(CORE_SCOPE.length + 1)
@@ -340,39 +382,61 @@ export async function applyCoreUpdate(plan, stagedDir, beforeApply) {
       if (!existsSync(join(staged, 'package.json'))) {
         throw new Error(`暂存区缺少 ${short}`)
       }
+
+      let backup = null
       if (existsSync(live)) {
-        const backup = `${live}.bak-${pkg.from}`
-        try { rmSync(backup, { recursive: true, force: true }) } catch {}
-        renameSync(live, backup)
-        backups.push({ live, backup })
+        backup = `${live}.bak-${pkg.from}`
+        rmSync(backup, { recursive: true, force: true })
+        renameSync(live, backup) // 同盘（都在 node_modules 下），不会跨设备
       }
-      renameSync(staged, live)
-      applied.push({ live, backup: backups.length > 0 ? backups[backups.length - 1].backup : null })
+      touched.push({ short, live, backup })
+
+      movePath(staged, live) // 这一步会跨盘 → 内部已处理 EXDEV
+
+      done += 1
+      if (typeof onProgress === 'function') {
+        onProgress({ done, total, percent: Math.floor((done / total) * 100) })
+      }
     }
   } catch (error) {
-    // 回滚：先删掉新换上的，再把备份改回来
-    for (const item of applied.reverse()) {
+    // 回滚：倒序把 touched 里每一项还原（先清掉可能已落地的内容，再把备份改回来）
+    const failed = []
+    for (const item of touched.reverse()) {
       try { rmSync(item.live, { recursive: true, force: true }) } catch {}
       if (item.backup) {
-        try { renameSync(item.backup, item.live) } catch {}
+        try { movePath(item.backup, item.live) } catch (restoreError) {
+          failed.push(`${item.short}(${restoreError && restoreError.code ? restoreError.code : '未知'})`)
+        }
       }
     }
-    return {
-      ok: false,
-      error: `替换失败并已回滚：${error instanceof Error ? error.message : String(error)}`,
+    const reason = error instanceof Error ? error.message : String(error)
+    if (failed.length > 0) {
+      // 回滚也没成功：必须让用户知道哪些包只剩 .bak，别静默装作没事
+      return {
+        ok: false,
+        error: `${reason}；且以下包还原失败，请手动把 <包名>.bak-${plan.currentVersion} 改回原名：${failed.join(', ')}`,
+        stuck: failed,
+      }
     }
+    return { ok: false, error: `替换失败并已回滚：${reason}` }
   }
 
   return {
     ok: true,
-    applied: applied.length,
+    applied: touched.length,
     from: plan.currentVersion,
     to: plan.targetVersion,
-    backups: backups.map((b) => b.backup),
+    backups: touched.filter((t) => t.backup).map((t) => t.backup),
   }
 }
 
 /** 清理暂存区（替换成功后调用；失败时保留以便排查）。 */
 export function cleanStaging(targetVersion) {
   try { rmSync(stagingRoot(targetVersion), { recursive: true, force: true }) } catch {}
+  // 顺手清掉空掉的容器目录与 userData 下的旧暂存区，别在应用目录里留垃圾
+  for (const dir of [join(appNodeModulesDir(), '.dsh-core-update'), join(app.getPath('userData'), 'core-update')]) {
+    try {
+      if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true })
+    } catch {}
+  }
 }

@@ -249,8 +249,10 @@ ipcMain.handle('jackdsh:core-install', async (event, targetVersion) => {
     })
     if (!fetched.ok) return fetched
 
-    emit({ stage: 'apply', percent: 100 })
-    const applied = await applyCoreUpdate(plan, fetched.stagedDir)
+    emit({ stage: 'apply', percent: 0 })
+    const applied = await applyCoreUpdate(plan, fetched.stagedDir, {
+      onProgress: (p) => emit({ stage: 'apply', ...p }),
+    })
     if (!applied.ok) return applied
 
     cleanStaging(plan.targetVersion)
