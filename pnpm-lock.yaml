@@ -42,6 +42,9 @@ importers:
       schemastery:
         specifier: 3.18.0
         version: 3.18.0
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       tar:
         specifier: ^7.5.22
         version: 7.5.22

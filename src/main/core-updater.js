@@ -19,9 +19,11 @@ import { app } from 'electron'
 import {
   cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import semver from 'semver'
 import { compareSemver } from './updater.js'
 
 export const CORE_PACKAGE = '@deepseek-ai/dsh'
@@ -35,6 +37,9 @@ const CORE_ATOM = `https://github.com/${CORE_REPO_OWNER}/${CORE_REPO_NAME}/relea
 const USER_AGENT = 'DeepSeek-Agent-Desktop-Updater'
 /** 200+ 个包全串行太慢、全并发又会打满连接，取中间值 */
 const CONCURRENCY = 8
+
+// 这是个 ESM 模块，没有 CommonJS 的 __dirname，必须自己算
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // ---------------------------------------------------------------- 路径
 
@@ -207,55 +212,221 @@ async function mapWithConcurrency(items, limit, worker) {
 }
 
 /**
- * 解析「要更新哪些包、各自从哪下」。
+ * 解析「要更新/新增哪些包、各自从哪下」。
  *
- * 只挑**版本等于本机内核版本**的 `@deepseek-ai/*`（即整条锁步线），逐个确认目标
- * 版本存在。**任一缺失就整体放弃**并在错误里列出——绝不部分更新，否则内核混版。
+ * ⚠️ 这里**不能只挑"已存在的包"**——第一版就是这么写的，结果用户更新到 0.1.5-rc.1 后
+ * 启动即崩：新内核引入了 0.1.2-rc.1 里根本没有的 `@deepseek-ai/dsh-http-proxy`，
+ * 而我们只替换旧包、从不装新包，于是 `ERR_MODULE_NOT_FOUND`。
+ *
+ * 正确做法：从「已装的整条锁步线」出发，沿目标版本的 dependencies /
+ * optionalDependencies / peerDependencies **递归求闭包**，把新引入的包一并纳入。
+ *
+ * 版本选择分两类，别混：
+ *   · 锁步包（`dsh-*`，spec 指向同一条版本线）→ **直接用内核目标版本**。
+ *     刻意不做 semver 范围解析：`^0.1.5-rc.1` 用 maxSatisfying 会漂到 0.1.6-alpha.1，
+ *     把内核混成两条预发布线（实测过）。
+ *   · 独立版本线的包（如 node-addon-system 声明 `^0.1.2`）→ 按声明范围求最高匹配版本。
  */
+/**
+ * 取某个包某个版本的元数据。带重试，并**严格区分三种结果**：
+ *   `{ meta }`      成功
+ *   `{ notFound:true }` 404 —— 确定性的「这个版本不存在」，不重试
+ *   `{ error:true }`    网络/限流失败（重试后仍失败）
+ *
+ * ⚠️ 为什么必须区分：一次计划要发 200+ 个请求，registry 偶发超时很正常。
+ * 第一版把所有失败都当 `null`，于是「网络抖动」和「这个包真的没有」成了一个结果——
+ * 表现就是同一次计划每次跑报缺的包还不一样（1 个 / 5 个）。这跟我们要修的
+ * 那个 bug 是同一类错误：**悄悄产出一份不完整的计划**。宁可明确报「网络不稳，请重试」。
+ */
+async function fetchVersionMeta(name, version, attempt = 0) {
+  let response
+  try {
+    response = await fetch(`${NPM_REGISTRY}/${name}/${version}`, {
+      headers: { accept: 'application/json', 'user-agent': USER_AGENT },
+    })
+  } catch {
+    if (attempt >= 5) return { error: true }
+    await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)))
+    return fetchVersionMeta(name, version, attempt + 1)
+  }
+  if (response.status === 404) return { notFound: true }
+  if (!response.ok) {
+    if (attempt >= 5) return { error: true }
+    await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)))
+    return fetchVersionMeta(name, version, attempt + 1)
+  }
+  try {
+    const meta = await response.json()
+    return {
+      meta: {
+        version: meta.version,
+        dependencies: meta.dependencies || {},
+        optionalDependencies: meta.optionalDependencies || {},
+        peerDependencies: meta.peerDependencies || {},
+        tarball: meta.dist && meta.dist.tarball,
+        unpackedSize: Number(meta.dist && meta.dist.unpackedSize) || 0,
+      },
+    }
+  } catch {
+    if (attempt >= 5) return { error: true }
+    return fetchVersionMeta(name, version, attempt + 1)
+  }
+}
+
+/**
+ * 这个依赖声明是否「已经覆盖了内核目标版本」——是的话就直接用目标版本，不做范围解析。
+ *
+ * 用 `semver.satisfies(targetVersion, spec)` 而不是自己比 major.minor：
+ * 后者会把 `^0.1.2`（稳定线）误判成锁步依赖，然后去请求根本不存在的
+ * `0.1.5-rc.1`（实测：@deepseek-ai/node-addon-system 就是这么被误报成缺失的）。
+ */
+function isLockstepSpec(spec, targetVersion) {
+  if (typeof spec !== 'string' || spec.trim() === '') return false
+  try {
+    return semver.satisfies(targetVersion, spec)
+  } catch {
+    return false
+  }
+}
+
+/** 独立版本线：按声明范围求最高匹配版本（含预发布）。 */
+/** 独立版本线：按声明范围求最高匹配版本（含预发布）。同样区分三态。 */
+async function resolveExternalVersion(name, spec) {
+  let response
+  try {
+    response = await fetch(`${NPM_REGISTRY}/${name}`, {
+      headers: { accept: 'application/json', 'user-agent': USER_AGENT },
+    })
+  } catch {
+    return { error: true }
+  }
+  if (response.status === 404) return { notFound: true }
+  if (!response.ok) return { error: true }
+  try {
+    const meta = await response.json()
+    const versions = Object.keys(meta.versions || {})
+    const version = semver.maxSatisfying(versions, spec, { includePrerelease: true })
+      || (meta['dist-tags'] && meta['dist-tags'].latest)
+    return version ? { version } : { notFound: true }
+  } catch {
+    return { error: true }
+  }
+}
+
 export async function planCoreUpdate(targetVersion, options = {}) {
   const currentVersion = options.currentVersion || installedCoreVersion()
   if (!currentVersion) return { ok: false, error: '读不到本机内核版本。' }
+  if (typeof targetVersion !== 'string' || targetVersion.trim() === '') {
+    return { ok: false, error: '缺少目标版本号。' }
+  }
+  const verdict = compareSemver(targetVersion, currentVersion)
+  if (verdict === null) return { ok: false, error: `看不懂的版本号：${targetVersion}` }
+  if (verdict <= 0) {
+    return { ok: false, error: `目标版本 ${targetVersion} 不比当前 ${currentVersion} 新。` }
+  }
 
-  const targets = listInstalledCorePackages().filter((p) => p.version === currentVersion)
-  if (targets.length === 0) return { ok: false, error: '没有找到可更新的官方包。' }
+  const installed = listInstalledCorePackages()
+  if (installed.length === 0) return { ok: false, error: '没有找到可更新的官方包。' }
+  const installedMap = new Map(installed.map((p) => [p.name, p.version]))
 
-  const resolved = await mapWithConcurrency(targets, CONCURRENCY, async (pkg) => {
-    try {
-      const response = await fetch(`${NPM_REGISTRY}/${pkg.name}/${targetVersion}`, {
-        headers: { accept: 'application/json', 'user-agent': USER_AGENT },
-      })
-      if (!response.ok) return { name: pkg.name, missing: true }
-      const meta = await response.json()
-      const tarball = meta && meta.dist && meta.dist.tarball
-      if (typeof tarball !== 'string') return { name: pkg.name, missing: true }
-      return {
-        name: pkg.name,
-        from: pkg.version,
-        to: targetVersion,
-        tarball,
-        unpackedSize: Number(meta.dist.unpackedSize) || 0,
+  // 起点：已装的整条锁步线（版本等于当前内核版本的这批）
+  const seed = installed.filter((p) => p.version === currentVersion).map((p) => p.name)
+  if (seed.length === 0) return { ok: false, error: '没有找到与内核同版本的包，无法整组更新。' }
+
+  const chosen = new Map()         // name -> { to, tarball, unpackedSize }
+  const externalNeeds = new Map()  // name -> spec（独立版本线且当前缺失）
+  const retired = []               // 已装、但目标版本确实没有（新版删掉了），跳过即可
+  const brokenDeps = []            // 被依赖发现、目标版本却没有 → 绝不能继续
+  const networkErrors = []         // 网络失败 → 绝不静默跳过
+
+  let frontier = seed.map((name) => ({ name, version: targetVersion, isSeed: true }))
+  let rounds = 0
+
+  while (frontier.length > 0 && rounds < 16) {
+    rounds += 1
+    // 一次遍历里同时拿到元数据，tarball 也一并留下，避免后面再发一轮重复请求
+    const results = await mapWithConcurrency(frontier, CONCURRENCY, async (item) => (
+      { item, res: await fetchVersionMeta(item.name, item.version) }
+    ))
+    const next = []
+    for (const { item, res } of results) {
+      if (res.error) { networkErrors.push(`${item.name}@${item.version}`); continue }
+      if (res.notFound) {
+        // 种子缺 = 新版下架了旧包（正常，跳过）；依赖缺 = 真问题（放弃）
+        if (item.isSeed) retired.push(item.name)
+        else brokenDeps.push(`${item.name}@${item.version}`)
+        continue
       }
-    } catch {
-      return { name: pkg.name, missing: true }
-    }
-  })
+      const meta = res.meta
+      if (chosen.has(item.name)) continue
+      chosen.set(item.name, { to: item.version, tarball: meta.tarball, unpackedSize: meta.unpackedSize })
 
-  const missing = resolved.filter((r) => r.missing).map((r) => r.name)
-  if (missing.length > 0) {
+      for (const [dep, spec] of Object.entries({ ...meta.dependencies, ...meta.optionalDependencies, ...meta.peerDependencies })) {
+        if (!dep.startsWith(`${CORE_SCOPE}/`)) continue
+        if (chosen.has(dep) || next.some((n) => n.name === dep)) continue
+        if (isLockstepSpec(spec, targetVersion)) {
+          next.push({ name: dep, version: targetVersion, isSeed: false })
+        } else if (!installedMap.has(dep)) {
+          externalNeeds.set(dep, spec)
+        }
+        // 独立版本线但已装的：沿用现状，不参与本次更新
+      }
+    }
+    frontier = next
+  }
+
+  if (networkErrors.length > 0) {
     return {
       ok: false,
-      error: `官方源在 ${targetVersion} 缺少 ${missing.length} 个包，已放弃更新以免内核混版。`,
-      missing: missing.slice(0, 12),
+      error: `查询官方源时有 ${networkErrors.length} 个请求失败（网络或限流），已放弃以免产出不完整的计划。请稍后重试。`,
+      failures: networkErrors.slice(0, 8),
     }
+  }
+  if (brokenDeps.length > 0) {
+    return {
+      ok: false,
+      error: `官方源在 ${targetVersion} 缺少被其他包依赖的组件，已放弃更新以免内核混版。`,
+      missing: brokenDeps.slice(0, 12),
+    }
+  }
+  if (chosen.size === 0) return { ok: false, error: '没有解析出任何需要更新的包。' }
+
+  // 独立版本线的缺失包：按声明范围解析，并单独取一次下载地址
+  for (const [name, spec] of externalNeeds) {
+    const resolved = await resolveExternalVersion(name, spec)
+    if (resolved.error) return { ok: false, error: `解析 ${name}（要求 ${spec}）时网络失败，请稍后重试。` }
+    if (resolved.notFound) return { ok: false, error: `无法为 ${name}（要求 ${spec}）确定可用版本，已放弃。` }
+    const metaRes = await fetchVersionMeta(name, resolved.version)
+    if (metaRes.error) return { ok: false, error: `取 ${name}@${resolved.version} 的信息时网络失败，请稍后重试。` }
+    chosen.set(name, {
+      to: resolved.version,
+      tarball: metaRes.meta ? metaRes.meta.tarball : null,
+      unpackedSize: metaRes.meta ? metaRes.meta.unpackedSize : 0,
+    })
+  }
+
+  const packages = [...chosen].map(([name, info]) => ({
+    name,
+    from: installedMap.get(name) || null, // null = 目标版本新增的包
+    to: info.to,
+    tarball: info.tarball,
+    unpackedSize: info.unpackedSize,
+  }))
+
+  const noTarball = packages.filter((p) => !p.tarball).map((p) => p.name)
+  if (noTarball.length > 0) {
+    return { ok: false, error: `以下包取不到下载地址，已放弃：${noTarball.slice(0, 8).join(', ')}` }
   }
 
   return {
     ok: true,
     targetVersion,
     currentVersion,
-    packages: resolved,
-    count: resolved.length,
-    unpackedSize: resolved.reduce((sum, r) => sum + r.unpackedSize, 0),
+    packages,
+    count: packages.length,
+    added: packages.filter((p) => p.from === null).length,
+    retired, // 目标版本已下架、本次跳过的旧包
+    unpackedSize: packages.reduce((sum, p) => sum + p.unpackedSize, 0),
   }
 }
 
@@ -344,14 +515,27 @@ function movePath(from, to) {
 }
 
 /**
+ * 备份根目录。
+ *
+ * ⚠️ 刻意放在 `node_modules` **之外**，而不是留成 `@deepseek-ai/<name>.bak-<ver>`。
+ * 第一版就是留在原地，结果 214 个备份目录全堆在 `@deepseek-ai/` 里 ——
+ * 那是**会被扫描的命名空间**，插件清单与客户端模块加载会看到一堆同名包目录。
+ * 放到 `<resources>/.dsh-core-backup/<旧版本>/`：既不在扫描范围，又与应用同盘（rename 瞬时）。
+ */
+function backupRoot(oldVersion) {
+  return join(appNodeModulesDir(), '..', '.dsh-core-backup', oldVersion)
+}
+
+/**
  * 把暂存区替换进应用目录。
  *
- * 顺序（**逐个包**进行，不是先全备份再全替换）：备份 → 换新 → 下一个。
- * 任一步失败，把已动过的**全部还原**再返回错误——宁可保持旧内核，不可留混版。
+ * 顺序（**逐个包**进行）：备份 → 换新 → 下一个；全部落地后再做一次校验。
+ * 任一步失败（含校验不过），把已动过的**全部还原**再返回错误——
+ * 宁可保持旧内核，不可留混版。
  *
  * @param {object} plan
  * @param {string} stagedDir
- * @param {{onProgress?: (p:{done:number,total:number,percent:number}) => void}} [options]
+ * @param {{onProgress?: (p: {done: number, total: number, percent: number}) => void}} [options]
  */
 export async function applyCoreUpdate(plan, stagedDir, options = {}) {
   if (!plan || plan.ok !== true || !stagedDir) return { ok: false, error: '更新计划无效。' }
@@ -370,7 +554,7 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
   const total = plan.packages.length
   let done = 0
 
-  // ⚠️ 这里记录的是「已经动过的包」，必须在**备份之后、换新之前**就 push。
+  // ⚠️ 记录的是「已经动过的包」，必须在**备份之后、换新之前**就 push。
   // 否则失败正好卡在这两步之间时，备份不会进入回滚列表 → 原目录改名后没人还回去，
   // 内核就少了一个包（实测踩过：@deepseek-ai/dsh 变成 dsh.bak-<ver> 后再也没还原）。
   const touched = []
@@ -385,21 +569,38 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
 
       let backup = null
       if (existsSync(live)) {
-        backup = `${live}.bak-${pkg.from}`
+        const dir = backupRoot(pkg.from || plan.currentVersion)
+        mkdirSync(dir, { recursive: true })
+        backup = join(dir, short)
         rmSync(backup, { recursive: true, force: true })
-        renameSync(live, backup) // 同盘（都在 node_modules 下），不会跨设备
+        movePath(live, backup)
       }
       touched.push({ short, live, backup })
 
-      movePath(staged, live) // 这一步会跨盘 → 内部已处理 EXDEV
+      movePath(staged, live) // 跨盘时内部已回落为「复制 + 删源」
 
       done += 1
       if (typeof onProgress === 'function') {
         onProgress({ done, total, percent: Math.floor((done / total) * 100) })
       }
     }
+
+    // 落地校验：盘上每个包的版本必须真的等于目标版本。
+    // 这一步是为了兜住「依赖闭包算漏了」或「解包不完整」——用户就是因为漏装
+    // 18 个新包才启动即崩（ERR_MODULE_NOT_FOUND）。宁可在这里发现并回滚。
+    const bad = []
+    for (const pkg of plan.packages) {
+      const short = pkg.name.slice(CORE_SCOPE.length + 1)
+      try {
+        const written = JSON.parse(readFileSync(join(scopeDir, short, 'package.json'), 'utf8'))
+        if (written.version !== pkg.to) bad.push(`${short}(期望 ${pkg.to} 实际 ${written.version})`)
+      } catch {
+        bad.push(`${short}(读不到 package.json)`)
+      }
+    }
+    if (bad.length > 0) throw new Error(`落地校验未通过：${bad.slice(0, 6).join(', ')}`)
   } catch (error) {
-    // 回滚：倒序把 touched 里每一项还原（先清掉可能已落地的内容，再把备份改回来）
+    // 回滚：倒序把 touched 里每一项还原（先清掉可能已落地的内容，再把备份移回来）
     const failed = []
     for (const item of touched.reverse()) {
       try { rmSync(item.live, { recursive: true, force: true }) } catch {}
@@ -411,10 +612,11 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     }
     const reason = error instanceof Error ? error.message : String(error)
     if (failed.length > 0) {
-      // 回滚也没成功：必须让用户知道哪些包只剩 .bak，别静默装作没事
+      // 回滚也没成功：必须让用户知道哪些包只剩备份，别静默装作没事
+      const where = backupRoot(plan.currentVersion || 'backup')
       return {
         ok: false,
-        error: `${reason}；且以下包还原失败，请手动把 <包名>.bak-${plan.currentVersion} 改回原名：${failed.join(', ')}`,
+        error: `${reason}；且以下包还原失败，请手动从 ${where} 把同名目录移回 node_modules/@deepseek-ai/：${failed.join(', ')}`,
         stuck: failed,
       }
     }
@@ -427,6 +629,7 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     from: plan.currentVersion,
     to: plan.targetVersion,
     backups: touched.filter((t) => t.backup).map((t) => t.backup),
+    backupRoot: backupRoot(plan.currentVersion),
   }
 }
 
