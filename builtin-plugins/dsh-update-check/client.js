@@ -129,6 +129,7 @@ window.__ModuleLoader__.load({
         coreStagePlan: '正在核对要更新的包…',
         coreStageDownload: '正在下载内核包…',
         coreStageApply: '正在替换文件…',
+        coreStageVerify: '正在验证内核能否启动…',
         coreDone: (from, to) => `内核已从 ${from} 更新到 ${to}。`,
         coreRestart: '请重启应用以应用更新。当前运行的仍是旧内核，重启后生效。',
         coreSource: '来源：npm 官方源 @deepseek-ai/dsh',
@@ -166,6 +167,7 @@ window.__ModuleLoader__.load({
         coreStagePlan: 'Resolving packages…',
         coreStageDownload: 'Downloading core packages…',
         coreStageApply: 'Replacing files…',
+        coreStageVerify: 'Verifying the kernel boots…',
         coreDone: (from, to) => `Core updated from ${from} to ${to}.`,
         coreRestart: 'Restart the app to apply the update. The running kernel is still the old one.',
         coreSource: 'Source: official npm registry @deepseek-ai/dsh',
@@ -401,8 +403,9 @@ window.__ModuleLoader__.load({
       }, [api, result, onAvailability])
 
       const stageText = progress && progress.stage === 'download' ? t.coreStageDownload
-        : progress && progress.stage === 'apply' ? t.coreStageApply
-          : t.coreStagePlan
+        : progress && progress.stage === 'verify' ? t.coreStageVerify
+          : progress && progress.stage === 'apply' ? t.coreStageApply
+            : t.coreStagePlan
 
       const log = (result && Array.isArray(result.changelog)) ? result.changelog : []
 

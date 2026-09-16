@@ -599,6 +599,18 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
       }
     }
     if (bad.length > 0) throw new Error(`落地校验未通过：${bad.slice(0, 6).join(', ')}`)
+
+    // 启动冒烟验证：文件都对，不代表内核真能起来。这一步是唯一能证明
+    // 「这次更新没把应用搞坏」的办法（详见 verifyCoreBoots 的说明）。
+    if (typeof options.verifyBoot === 'function') {
+      if (typeof onProgress === 'function') {
+        onProgress({ done: total, total, percent: 100, stage: 'verify' })
+      }
+      const smoke = await options.verifyBoot()
+      if (!smoke || smoke.ok !== true) {
+        throw new Error(`更新后内核无法启动，已回滚。${(smoke && smoke.error) || '（无详情）'}`)
+      }
+    }
   } catch (error) {
     // 回滚：倒序把 touched 里每一项还原（先清掉可能已落地的内容，再把备份移回来）
     const failed = []
@@ -642,4 +654,102 @@ export function cleanStaging(targetVersion) {
       if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true })
     } catch {}
   }
+}
+
+// ---------------------------------------------------------------- 冒烟验证
+
+/**
+ * 启动一次内核，确认它真的能起来。
+ *
+ * ⚠️ 这是**唯一**能证明「这次更新没把应用搞坏」的办法。实测踩过两次：
+ *   1. 新版内核引入了旧版没有的包 → 启动时 ERR_MODULE_NOT_FOUND
+ *   2. 上游 0.1.5+ 的 dsh-client-connection 删掉了自己 inject 里的 webServer
+ *      却仍在使用 → 任何用 ctx.connection.rpc.handle() 的插件都让内核起不来
+ * 两者都**不是**「下载/替换失败」，只靠版本号和文件校验根本发现不了。
+ * 所以替换完必须真启动一次；起不来就整组回滚，把错误原样报给用户。
+ *
+ * 就绪信号用内核 stdout 里的 `token=` 那一行（`dsh web: http://.../?token=...`），
+ * 这是它自己打的成功标志，比「进程还活着」可靠。
+ *
+ * @param {{dshHome?:string, cwd?:string, timeoutMs?:number}} options
+ * @returns {Promise<{ok:boolean, error?:string}>}
+ */
+export async function verifyCoreBoots(options = {}) {
+  const binScript = join(appNodeModulesDir(), CORE_PACKAGE, 'lib', 'bin.js')
+  if (!existsSync(binScript)) {
+    return { ok: false, error: `找不到内核入口：${binScript}` }
+  }
+
+  const { spawn } = await import('node:child_process')
+  const { createServer } = await import('node:net')
+
+  // 借系统要一个空闲端口，避免和正在运行的内核撞车
+  const port = await new Promise((resolve) => {
+    const probe = createServer()
+    probe.on('error', () => resolve(0))
+    probe.listen(0, '127.0.0.1', () => {
+      const assigned = probe.address() && probe.address().port
+      probe.close(() => resolve(assigned || 0))
+    })
+  })
+  if (!port) return { ok: false, error: '找不到空闲端口做启动验证。' }
+
+  const env = {
+    ...process.env,
+    // 与应用拉起内核时保持一致：Electron 二进制当无界面 Node 用
+    ELECTRON_RUN_AS_NODE: '1',
+    DSH_HOME: options.dshHome || process.env.DSH_HOME || '',
+    DSH_PORT: String(port),
+    PORT: String(port),
+    DSH_DESKTOP_ISOLATED: '1',
+    NODE_ENV: 'production',
+  }
+
+  let child
+  try {
+    child = spawn(
+      process.execPath,
+      ['--expose-internals', binScript, 'web', '--port', String(port), '--no-open'],
+      { env, cwd: options.cwd || app.getPath('home'), stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+  } catch (error) {
+    return { ok: false, error: `无法启动内核做验证：${error instanceof Error ? error.message : String(error)}` }
+  }
+
+  const timeoutMs = Number(options.timeoutMs) || 180000
+  let stdout = ''
+  let stderr = ''
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { child.kill() } catch {}
+      resolve(result)
+    }
+    const timer = setTimeout(() => {
+      finish({ ok: false, error: `内核在 ${Math.round(timeoutMs / 1000)}s 内没有就绪（超时）` })
+    }, timeoutMs)
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString()
+      // 内核就绪时会打出带 token 的地址，用它做成功判据
+      if (stdout.includes('token=')) finish({ ok: true })
+    })
+    child.stderr?.on('data', (chunk) => { stderr += chunk.toString() })
+    child.on('error', (error) => {
+      finish({ ok: false, error: `无法启动内核：${error.message}` })
+    })
+    // ⚠️ 必须用 close 而不是 exit：exit 触发时 stdio 管道里可能还有没读完的数据，
+    // 用 exit 会拿到空的 stderr，用户就只能看到「退出码 1」而不知道真正原因。
+    child.on('close', (code, signal) => {
+      const detail = (stderr || stdout).split('\n').map((l) => l.trim()).filter(Boolean).slice(-8).join('\n')
+      finish({
+        ok: false,
+        error: `内核启动失败（退出码 ${code}${signal ? ` / ${signal}` : ''}）${detail ? `：\n${detail}` : ''}`,
+      })
+    })
+  })
 }

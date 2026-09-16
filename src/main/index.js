@@ -20,6 +20,7 @@ import {
   downloadCoreUpdate,
   installedCoreVersion,
   planCoreUpdate,
+  verifyCoreBoots,
 } from './core-updater.js'
 
 // 在启动初期增强 PATH，解决 macOS/Linux GUI 应用丢失终端环境变量的通病
@@ -251,7 +252,13 @@ ipcMain.handle('jackdsh:core-install', async (event, targetVersion) => {
 
     emit({ stage: 'apply', percent: 0 })
     const applied = await applyCoreUpdate(plan, fetched.stagedDir, {
-      onProgress: (p) => emit({ stage: 'apply', ...p }),
+      onProgress: (p) => emit({ stage: p.stage === 'verify' ? 'verify' : 'apply', ...p }),
+      // 替换完真启动一次内核。起不来就整组回滚 —— 光看版本号和文件校验
+      // 发现不了「新版内核要求变了导致插件加载失败」这类问题。
+      verifyBoot: () => verifyCoreBoots({
+        dshHome: serverManager?.dshHome,
+        cwd: serverManager?.defaultWorkspace,
+      }),
     })
     if (!applied.ok) return applied
 
