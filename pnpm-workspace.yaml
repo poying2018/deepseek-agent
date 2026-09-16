@@ -36,3 +36,46 @@ allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': true
   protobufjs: true
+  # electron-builder 26 引入；其 install 脚本只做「选 7z 架构」。
+  # 本发行版只打 NSIS（不用 squirrel），无需其 7z，故显式拒绝而非放行，
+  # 避免多下一份二进制。
+  electron-winstaller: false
+
+# 传递依赖覆盖（安全修复，对应 Dependabot 告警）
+#
+# ⚠️ 为什么这里和 package.json 的 pnpm.overrides 都要写：
+#   · CI（release.yml）固定 pnpm 10 —— 只读 package.json 的 pnpm.overrides
+#   · 本地 pnpm 11+ —— 不再读 package.json 的该字段，改读本文件的 overrides
+#   两处必须保持同步，否则本地装出来的依赖树和 CI 不一致。
+#
+# tar: 6.x 已无补丁版（停在 6.2.1），受影响的是 5 个 ^6 消费方
+#      （node-gyp / cacache / app-builder-lib / archiver / @electron/rebuild）。
+#      7.5.22 仍导出 CommonJS 入口，可安全替换 ^6。
+# builder-util-runtime: CVE-2026-54673，< 9.7.0 受影响。
+overrides:
+  # ── 与 package.json 的 pnpm.overrides 保持完全一致（见上方说明） ──
+  '@deepseek-ai/dsh-attachment': 0.1.2-rc.1
+  '@deepseek-ai/dsh-session': 0.1.2-rc.1
+  '@deepseek-ai/dsh-session-persistence': 0.1.2-rc.1
+  '@deepseek-ai/dsh-session-query': 0.1.2-rc.1
+  '@deepseek-ai/dsh-session-telemetry': 0.1.2-rc.1
+  '@deepseek-ai/dsh-session-title-llm': 0.1.2-rc.1
+  '@deepseek-ai/dsh-llm': 0.1.2-rc.1
+  '@deepseek-ai/dsh-fs': 0.1.2-rc.1
+  '@deepseek-ai/dsh-jobs': 0.1.2-rc.1
+  '@deepseek-ai/dsh-sandbox': 0.1.2-rc.1
+  '@deepseek-ai/dsh-shell': 0.1.2-rc.1
+  '@deepseek-ai/dsh-settings': 0.1.2-rc.1
+  '@deepseek-ai/dsh-output-retention': 0.1.2-rc.1
+  '@deepseek-ai/dsh-spill': 0.1.2-rc.1
+  '@deepseek-ai/dsh-workflow': 0.1.2-rc.1
+  '@deepseek-ai/dsh-anonymous-user-id': 0.1.2-rc.1
+  '@deepseek-ai/dsh-code-runtime': 0.1.2-rc.1
+  '@deepseek-ai/dsh-subagent-in-process-driver': 0.1.2-rc.1
+  '@deepseek-ai/dsh-authorization': 0.1.2-rc.1
+  '@deepseek-ai/dsh-bash-local': 0.1.2-rc.1
+  '@deepseek-ai/dsh-compaction': 0.1.2-rc.1
+
+  # ── 安全修复（Dependabot 告警） ──
+  tar: ^7.5.22
+  builder-util-runtime: ^9.7.0

@@ -6,6 +6,7 @@
   "main": "src/main/index.js",
   "author": "JackAIStudio",
   "license": "MIT",
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "status:plugins": "node scripts/scan-plugins-status.mjs",
     "check:picker": "node scripts/check-picker-patch.mjs",
@@ -52,11 +53,14 @@
       "@deepseek-ai/dsh-subagent-in-process-driver": "0.1.2-rc.1",
       "@deepseek-ai/dsh-authorization": "0.1.2-rc.1",
       "@deepseek-ai/dsh-bash-local": "0.1.2-rc.1",
-      "@deepseek-ai/dsh-compaction": "0.1.2-rc.1"
+      "@deepseek-ai/dsh-compaction": "0.1.2-rc.1",
+
+      "tar": "^7.5.22",
+      "builder-util-runtime": "^9.7.0"
     }
   },
   "devDependencies": {
     "electron": "^43.5.1",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.15.3"
   }
 }
