@@ -49,18 +49,20 @@ extraResources:
       - "!electron-publish/**"
       - "!7zip-bin/**"
       - "!typescript/**"
-      # 排除非 macOS 平台的预编译底层 C++ 库（防止全平台二进制撑爆包体）
-      - "!@img/sharp-libvips-linux*/**"
-      - "!@img/sharp-libvips-win32*/**"
-      - "!@img/sharp-libvips-darwin-x64/**"
-      - "!@img/sharp-linux*/**"
-      - "!@img/sharp-win32*/**"
-      - "!@img/sharp-darwin-x64/**"
-      - "!@img/sharp-wasm32/**"
-      - "!@img/sharp-freebsd*/**"
-      - "!@vscode/ripgrep-linux*/**"
-      - "!@vscode/ripgrep-win32*/**"
-      - "!@vscode/ripgrep-darwin-x64/**"
+      # ⚠️ 这里**不要**按平台排除 sharp / libvips 的预编译库。
+      #
+      # 历史上曾用 `!@img/sharp-win32*/**`、`!@img/sharp-linux*/**` 之类
+      # 「只留 macOS 的二进制」来省体积，但那是个误判：
+      # **pnpm 本来就只装当前平台的可选依赖**（本机实测 @img/ 下只有
+      # sharp-win32-x64 一个，19MB），根本不存在「全平台二进制撑爆包体」。
+      # 那些规则唯一实际效果是把**当前平台**的 sharp 排除掉 —— 而 0.1.5+
+      # 内核的 @deepseek-ai/dsh-attachment-local 需要它，结果是 Windows 包
+      # 一更新内核就崩：
+      #   Could not load the "sharp" module using the win32-x64 runtime
+      # 同样地，@vscode/ripgrep 的实际二进制在嵌套路径
+      # （@vscode/ripgrep/node_modules/@vscode/ripgrep-<平台>）下，
+      # 顶层的 `!@vscode/ripgrep-win32*/**` 也从来匹配不到、纯属噪音。
+      # 结论：交给 pnpm 的平台解析，构建侧不再插手。
 
 mac:
   category: public.app-category.developer-tools

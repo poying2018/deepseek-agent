@@ -338,6 +338,7 @@ export async function planCoreUpdate(targetVersion, options = {}) {
   const retired = []               // 已装、但目标版本确实没有（新版删掉了），跳过即可
   const brokenDeps = []            // 被依赖发现、目标版本却没有 → 绝不能继续
   const networkErrors = []         // 网络失败 → 绝不静默跳过
+  const externalMissing = new Map() // 第三方依赖缺少（本更新装不了）→ 提前拒绝
 
   let frontier = seed.map((name) => ({ name, version: targetVersion, isSeed: true }))
   let rounds = 0
@@ -371,6 +372,18 @@ export async function planCoreUpdate(targetVersion, options = {}) {
         }
         // 独立版本线但已装的：沿用现状，不参与本次更新
       }
+
+      // 新版内核可能还要旧版没有的**第三方**包（实测踩过：0.1.5 的
+      // @deepseek-ai/dsh-attachment-local 需要 sharp，而构建配置把它排除了，
+      // 结果内核启动就报 Could not load the "sharp" module）。
+      // 本更新只管 @deepseek-ai/*，装不了第三方包，所以这里只做「存在性」检查，
+      // 缺了就**提前拒绝**，不要等内核启动时才炸。
+      // 只查 dependencies，不含 optional —— 可选依赖允许缺席（平台相关的二进制大量是这种）。
+      for (const dep of Object.keys(meta.dependencies)) {
+        if (dep.startsWith(`${CORE_SCOPE}/`)) continue
+        if (externalMissing.has(dep)) continue
+        if (!existsSync(join(appNodeModulesDir(), dep))) externalMissing.set(dep, item.name)
+      }
     }
     frontier = next
   }
@@ -387,6 +400,15 @@ export async function planCoreUpdate(targetVersion, options = {}) {
       ok: false,
       error: `官方源在 ${targetVersion} 缺少被其他包依赖的组件，已放弃更新以免内核混版。`,
       missing: brokenDeps.slice(0, 12),
+    }
+  }
+  if (externalMissing.size > 0) {
+    const list = [...externalMissing].slice(0, 8).map(([dep, by]) => `${dep}（${by.split('/').pop()} 需要）`)
+    return {
+      ok: false,
+      error: `新版内核还需要本机没有的依赖，装上也会起不来，已提前放弃：${list.join('；')}。`
+        + '这通常是安装包本身缺了该依赖（例如构建时把平台二进制过滤掉了），请安装最新的应用本体后再试。',
+      externalMissing: [...externalMissing.keys()],
     }
   }
   if (chosen.size === 0) return { ok: false, error: '没有解析出任何需要更新的包。' }
@@ -526,6 +548,66 @@ function backupRoot(oldVersion) {
   return join(appNodeModulesDir(), '..', '.dsh-core-backup', oldVersion)
 }
 
+// ---------------------------------------------------------------- 兼容补丁
+
+/**
+ * 已确认的上游内核回归 —— 替换后必须就地修补，否则内核起不来。
+ *
+ * 每条都要写清三件事：影响哪些版本、症状是什么、上游做了什么。
+ * 只对 `appliesTo` 为真的版本动手；找不到目标代码时**不报错**，交给
+ * 后面的启动冒烟验证去判断（上游将来改了写法或修好了，都不该被这里卡住）。
+ */
+export const CORE_COMPAT_PATCHES = [
+  {
+    id: 'connection-inject-webServer',
+    file: 'dsh-client-connection/lib/index.js',
+    appliesTo: (version) => {
+      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
+    },
+    find: 'inject = ["credentials"]',
+    replace: 'inject = ["webServer", "credentials"]',
+    why:
+      '上游 0.1.5-rc.1 起把 dsh-client-connection 的 inject 从 ["webServer","credentials"] '
+      + '改成了 ["credentials"]，但 register() 里仍然写 owner.effect(() => owner.webServer.register(route))，'
+      + '而 owner = this.ctx（Connection 自己的上下文）。自己删了依赖却还在用，导致任何调用 '
+      + 'ctx.connection.rpc.handle() 的插件都会让内核启动即崩：'
+      + 'cannot get property "webServer" without inject。0.1.5-rc.2 与 0.1.6-alpha.1 同样没修。',
+  },
+]
+
+/**
+ * 把兼容补丁打到**暂存区**（而不是已安装目录）。
+ *
+ * 打在暂存区的好处：一旦后续校验或启动验证失败，回滚是把整个目录换回去，
+ * 补丁自然一起撤销，不需要单独记录「补丁前的内容」。
+ *
+ * @returns {{applied:string[], skipped:string[], uncertain:string[]}}
+ */
+export function applyCoreCompatPatches(stagedDir, targetVersion) {
+  const result = { applied: [], skipped: [], uncertain: [] }
+  for (const patch of CORE_COMPAT_PATCHES) {
+    if (!patch.appliesTo(targetVersion)) continue
+    const file = join(stagedDir, patch.file)
+    if (!existsSync(file)) {
+      result.uncertain.push(`${patch.id}(文件缺失: ${patch.file})`)
+      continue
+    }
+    const raw = readFileSync(file, 'utf8')
+    if (raw.includes(patch.replace)) {
+      result.skipped.push(patch.id) // 已经是修好的形态（重复执行 / 上游修好）
+      continue
+    }
+    if (!raw.includes(patch.find)) {
+      // 上游换了写法：不猜，交给启动验证裁决
+      result.uncertain.push(`${patch.id}(找不到目标代码)`)
+      continue
+    }
+    writeFileSync(file, raw.replace(patch.find, patch.replace))
+    result.applied.push(patch.id)
+  }
+  return result
+}
+
 /**
  * 把暂存区替换进应用目录。
  *
@@ -553,6 +635,17 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
   const onProgress = options.onProgress
   const total = plan.packages.length
   let done = 0
+
+  // 先给暂存区打上游回归的兼容补丁（打在暂存区，回滚天然生效）
+  let compat
+  try {
+    compat = applyCoreCompatPatches(stagedDir, plan.targetVersion)
+  } catch (error) {
+    return { ok: false, error: `处理兼容补丁时出错：${error instanceof Error ? error.message : String(error)}` }
+  }
+  if (compat.uncertain.length > 0) {
+    console.warn('[core-updater] 以下兼容补丁无法确认，将由启动验证裁决:', compat.uncertain.join(', '))
+  }
 
   // ⚠️ 记录的是「已经动过的包」，必须在**备份之后、换新之前**就 push。
   // 否则失败正好卡在这两步之间时，备份不会进入回滚列表 → 原目录改名后没人还回去，
@@ -642,6 +735,7 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     to: plan.targetVersion,
     backups: touched.filter((t) => t.backup).map((t) => t.backup),
     backupRoot: backupRoot(plan.currentVersion),
+    compat,
   }
 }
 
