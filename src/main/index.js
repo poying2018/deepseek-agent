@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { findFreePort } from './port-finder.js'
 import { ServerManager, augmentGlobalPath } from './server-manager.js'
 import { encodeRelayToken, parseRelayToken } from './relay-token.js'
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  listDownloaded,
+  openReleasesPage,
+  RELEASES_PAGE,
+} from './updater.js'
 
 // 在启动初期增强 PATH，解决 macOS/Linux GUI 应用丢失终端环境变量的通病
 augmentGlobalPath()
@@ -127,6 +135,68 @@ ipcMain.on('jackdsh:window-toggle-maximize', (event) => {
     } else {
       win.maximize()
     }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 应用内「检查更新 / 下载更新 / 安装」
+//
+// 渲染层（左下角 sidebar.footer.action 的那个按钮）通过 preload 暴露的
+// window.jackdshNative.update.* 调到这四个 handle。
+// handler 只在主进程跑网络与落盘；渲染层拿不到 fs/网络之外的任何能力。
+// ---------------------------------------------------------------------------
+const updateLogger = (label, error) => {
+  console.warn(`[updater] ${label}:`, error instanceof Error ? error.message : error)
+}
+
+ipcMain.handle('jackdsh:update-info', async () => ({
+  ok: true,
+  currentVersion: app.getVersion(),
+  releasesPage: RELEASES_PAGE,
+  downloaded: await listDownloaded(),
+  platform: process.platform,
+  arch: process.arch,
+}))
+
+ipcMain.handle('jackdsh:update-check', async () => {
+  try {
+    return await checkForUpdates({ currentVersion: app.getVersion() })
+  } catch (error) {
+    updateLogger('check failed', error)
+    return { ok: false, error: `检查更新失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+})
+
+ipcMain.handle('jackdsh:update-download', async (event, asset) => {
+  try {
+    const sender = event.sender
+    const result = await downloadUpdate(asset, (progress) => {
+      if (sender.isDestroyed()) return
+      sender.send('jackdsh:update-progress', progress)
+    })
+    return result
+  } catch (error) {
+    updateLogger('download failed', error)
+    return { ok: false, error: `下载更新失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+})
+
+ipcMain.handle('jackdsh:update-install', async (_event, filePath) => {
+  try {
+    return await installUpdate(filePath)
+  } catch (error) {
+    updateLogger('install failed', error)
+    return { ok: false, error: `启动安装程序失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+})
+
+ipcMain.handle('jackdsh:update-open-releases', async () => {
+  try {
+    await openReleasesPage()
+    return { ok: true }
+  } catch (error) {
+    updateLogger('open releases failed', error)
+    return { ok: false, error: '无法打开发布页。' }
   }
 })
 

@@ -9,7 +9,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
 const runtimeDir = join(rootDir, 'bundle-runtime')
 const localPluginsDir = join(rootDir, '../plugins')
+// 仓内第一方插件：源码就在本仓库里（builtin-plugins/<name>），不依赖外部 repo。
+// 与 ../plugins（开发者本机、仓库之外）的区别是：**它会被提交**，所以 CI 也能打包，
+// 本地与 CI 走同一条路径。
+const inRepoPluginsDir = join(rootDir, 'builtin-plugins')
 const cacheDir = process.env.CI ? join(rootDir, '.plugin-cache') : join(tmpdir(), 'jds-plugin-cache')
+
+/** 列出仓内第一方插件目录名（只认带 package.json 的目录）。 */
+function listInRepoPlugins() {
+  if (!existsSync(inRepoPluginsDir)) return []
+  return readdirSync(inRepoPluginsDir, { withFileTypes: true })
+    .filter((item) => item.isDirectory() && existsSync(join(inRepoPluginsDir, item.name, 'package.json')))
+    .map((item) => item.name)
+    .sort()
+}
 
 // ---- 参数：--source auto|local|public（默认 auto：本地有就用本地，否则按清单 clone）
 const sourceFlag = (() => {
@@ -50,11 +63,22 @@ function parseManifest(file) {
 }
 
 const manifest = parseManifest(join(rootDir, 'plugins.manifest.yaml'))
+const inRepoPlugins = listInRepoPlugins()
 
 // 运行期注册清单与构建清单对账：只警告不阻断（运行期按 existsSync 自愈）
 for (const name of ALL_BUILTIN_PLUGINS) {
-  if (!manifest.some((p) => p.name === name)) {
-    console.warn(`  ⚠️ 运行期清单(own-plugins.js)里的 ${name} 不在 plugins.manifest.yaml 中`)
+  const inManifest = manifest.some((p) => p.name === name)
+  const inRepo = inRepoPlugins.includes(name)
+  if (!inManifest && !inRepo) {
+    console.warn(`  ⚠️ 运行期清单(own-plugins.js)里的 ${name} 既不在 plugins.manifest.yaml，也不在 builtin-plugins/`)
+  }
+}
+
+// 同名同时出现在两处会打出重复插件，明确报错而不是静默取其一
+for (const name of inRepoPlugins) {
+  if (manifest.some((p) => p.name === name)) {
+    console.error(`❌ ${name} 同时出现在 plugins.manifest.yaml 与 builtin-plugins/，请二选一`)
+    process.exit(2)
   }
 }
 
@@ -213,8 +237,15 @@ function ensureRepoBuilt(dir, entry, origin) {
 }
 
 console.log('🧩 [2/4] 收纳精选插件与依赖...')
-for (const entry of manifest) {
-  const { dir: src, origin } = resolvePluginSource(entry)
+// 两个来源合并处理：清单里的外部插件 + 仓内第一方插件（builtin-plugins/）
+const pluginSources = [
+  ...manifest.map((entry) => ({ entry, inRepo: false })),
+  ...inRepoPlugins.map((name) => ({ entry: { name }, inRepo: true })),
+]
+for (const { entry, inRepo } of pluginSources) {
+  const { dir: src, origin } = inRepo
+    ? { dir: join(inRepoPluginsDir, entry.name), origin: 'in-repo' }
+    : resolvePluginSource(entry)
   if (origin.startsWith('public@')) ensureRepoBuilt(src, entry, origin)
   const dest = join(runtimeDir, 'plugins', entry.name)
   mkdirSync(dirname(dest), { recursive: true })

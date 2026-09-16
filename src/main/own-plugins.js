@@ -31,6 +31,12 @@ export const OWN_PLUGINS = [
   //     （页面级热键，合成点击 dsh-better-sidebar 自己的切换按钮）。
   'dsh-browser-attach',
   'dsh-cmdj-toggle',
+  // 仓内第一方插件（源码在 builtin-plugins/，不依赖外部 repo）。
+  // 只挂 sidebar.footer.action 槽位 + 走 preload 的 window.jackdshNative.update.*，
+  // 宿主半边为空实现，无依赖：
+  //   · dsh-update-check —— 左下角「检查更新」：查 GitHub Release、显示更新说明、
+  //     应用内下载安装包并启动安装程序。
+  'dsh-update-check',
 ]
 
 /**

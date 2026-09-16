@@ -1,9 +1,38 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// 暴露只读 native 窗口能力（备用）
+// 暴露只读 native 窗口能力（备用）+ 应用内更新能力
 try {
   contextBridge.exposeInMainWorld('jackdshNative', {
     toggleMaximize: () => ipcRenderer.send('jackdsh:window-toggle-maximize'),
+
+    /**
+     * 应用内更新。全部走主进程（渲染层不碰网络与文件系统）。
+     *
+     * 注意：只有**桌面客户端**里的页面才有这个对象。用手机通过局域网遥控
+     * 打开同一页面时 window.jackdshNative 不存在 —— 客户端插件必须自行降级。
+     */
+    update: {
+      /** 当前版本 / 发布页地址 / 已下载的安装包 / 平台信息 */
+      info: () => ipcRenderer.invoke('jackdsh:update-info'),
+      /** 查询 GitHub 最新 Release 并与本机版本比对 */
+      check: () => ipcRenderer.invoke('jackdsh:update-check'),
+      /** 下载指定资产（asset 来自 check 的返回） */
+      download: (asset) => ipcRenderer.invoke('jackdsh:update-download', asset),
+      /** 启动已下载的安装程序 */
+      install: (filePath) => ipcRenderer.invoke('jackdsh:update-install', filePath),
+      /** 用系统浏览器打开发布页 */
+      openReleases: () => ipcRenderer.invoke('jackdsh:update-open-releases'),
+      /**
+       * 订阅下载进度。
+       * @returns 取消订阅函数（组件卸载时必须调用，否则监听器会堆积）
+       */
+      onProgress: (callback) => {
+        if (typeof callback !== 'function') return () => {}
+        const listener = (_event, progress) => callback(progress)
+        ipcRenderer.on('jackdsh:update-progress', listener)
+        return () => ipcRenderer.removeListener('jackdsh:update-progress', listener)
+      },
+    },
   })
 } catch {}
 
