@@ -27,11 +27,6 @@ allowBuilds:
   koffi: true
   # node-pty —— DSH 终端相关能力使用的伪终端原生模块。
   node-pty: true
-  # ssh2 + cpu-features —— 桌面端 SSH 隧道（src/main/tunnel-client.js 依赖 ssh2）；
-  # ssh2 本身是纯 JS，cpu-features 是它的可选加速模块（本机无 VS 构建工具时
-  # 其脚本会失败，属预期，ssh2 自动回落纯 JS 实现）。
-  ssh2: true
-  cpu-features: true
   # 以下三个的安装脚本只做预编译物落位或版本自检，不含源码编译。
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': true

@@ -29,7 +29,7 @@
     "@deepseek-ai/dsh": "0.1.2-rc.1",
     "@deepseek-ai/dsh-web-app": "0.1.2-rc.1",
     "schemastery": "3.18.0",
-    "ssh2": "^1.17.0"
+    "tar": "^7.5.22"
   },
   "pnpm": {
     "overrides": {

@@ -69,7 +69,6 @@ function generate(label, withPackages, seed, options = {}) {
 
   const manager = new ServerManager({ port: 3199, appDataPath: dshHome, runtimePath })
   manager.dshHome = dshHome
-  manager.relayConfigFile = join(dshHome, 'remote-relay.json')
   if (options.stubProbe !== undefined) manager.hasBrowsePickerPackages = () => options.stubProbe
   const probed = manager.hasBrowsePickerPackages()
   manager.ensureCordisPatch(patchPath)

@@ -59,9 +59,6 @@ plugins:
   - name: dsh-web-search-follow
     repo: https://github.com/JackAIStudio/dsh-web-search-follow.git
     ref: main
-  - name: dsh-workbuddy-dual
-    repo: https://github.com/JackAIStudio/dsh-workbuddy-dual.git
-    ref: main
   - name: dsh-better-sidebar
     repo: https://github.com/JackAIStudio/DSH-better-sidebar.git
     ref: main

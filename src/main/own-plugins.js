@@ -17,9 +17,7 @@ export const OWN_PLUGINS = [
   'dsh-app-badge',
   'dsh-session-navigator',
   'dsh-plugin-dashboard',
-  'dsh-web-search-follow',
-  'dsh-workbuddy-dual',
-  'dsh-better-sidebar',
+  'dsh-web-search-follow',  'dsh-better-sidebar',
   'dsh-paste-path',
   'dsh-autostart',
   // 这两个此前只在 plugins.manifest.yaml 里（会被打进包）却没进本清单，

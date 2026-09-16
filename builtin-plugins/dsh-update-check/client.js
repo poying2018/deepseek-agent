@@ -1,3 +1,13 @@
+/**
+ * dsh-update-check —— 侧栏左下角的「检查更新」。
+ *
+ * 两条独立轨道：
+ *   · 应用本体 —— 源是本项目 GitHub Release，可应用内下载并拉起安装程序
+ *   · 核心     —— 源是 npm 官方源的 @deepseek-ai/dsh，整组替换后就地生效，需重启
+ *
+ * 全部实际动作（网络、落盘、启动安装器）都在主进程；这里只负责画界面。
+ * 桌面客户端才有 window.jackdshNative，用手机局域网遥控打开时必须降级。
+ */
 window.__ModuleLoader__.load({
   id: 'dsh-update-check',
   factory: (require) => {
@@ -8,15 +18,16 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'sidebar.footer.action'
 
-    /** 只有桌面客户端里的页面才有这个桥；浏览器/手机遥控打开时为 null。 */
+    function native() {
+      return typeof window !== 'undefined' ? window.jackdshNative : undefined
+    }
     function bridge() {
-      const native = typeof window !== 'undefined' ? window.jackdshNative : undefined
-      return native && native.update ? native.update : null
+      const n = native()
+      return n && n.update && n.core ? n : null
     }
 
     const css = [
       '.duc{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center}',
-      // 与 dsh-web-restart 同款：把侧栏 footer 改成一行排布，让两个按钮并排
       '[class*="_footArea"]:has(.duc-wide){flex-direction:row;align-items:center;gap:4px}',
       '[class*="_footArea"]:has(.duc-wide) [class*="_settingsArea"]{flex:1 1 auto;width:auto;min-width:0}',
       '[class*="_footArea"]:has(.duc-wide) [class*="_footerActions"]{order:2;flex:none;width:auto;align-items:center;justify-content:flex-end}',
@@ -27,15 +38,19 @@ window.__ModuleLoader__.load({
       '.duc-btn.is-open{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary)}',
       '.duc-btn.is-busy svg{animation:ducSpin 1s linear infinite}',
       '.duc-btn svg{display:block;flex:none}',
-      // 有新版时按钮右上角挂一个小圆点
       '.duc-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-state-error-primary, #e5484d);box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2, transparent)}',
       '.duc-overlay{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center}',
       '.duc-mask{position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur)}',
-      '.duc-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:12px;width:min(460px,calc(100vw - 32px));max-height:min(640px,calc(100vh - 64px));box-sizing:border-box;padding:22px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary)}',
+      '.duc-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:12px;width:min(500px,calc(100vw - 32px));max-height:min(680px,calc(100vh - 64px));box-sizing:border-box;padding:22px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary)}',
       '.duc-kicker{margin:0;color:var(--dsw-alias-brand-primary);font-size:12px;font-weight:600;letter-spacing:.04em;line-height:18px;text-transform:uppercase}',
-      '.duc-title{margin:0;font-size:18px;font-weight:600;line-height:26px}',
-      '.duc-sub{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}',
-      '.duc-versions{display:flex;gap:16px;flex-wrap:wrap;margin:0}',
+      '.duc-tabs{display:flex;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding-bottom:8px}',
+      '.duc-tab{appearance:none;position:relative;padding:5px 10px;border-radius:8px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}',
+      '.duc-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.duc-tab.active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);font-weight:600}',
+      '.duc-tab:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2),0 0 0 4px var(--dsw-alias-brand-primary)}',
+      '.duc-tab-dot{position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary, #e5484d)}',
+      '.duc-body{display:flex;flex-direction:column;gap:12px;overflow:auto}',
+      '.duc-versions{display:flex;gap:20px;flex-wrap:wrap;margin:0}',
       '.duc-version{display:flex;flex-direction:column;gap:2px}',
       '.duc-version dt{margin:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
       '.duc-version dd{margin:0;font-size:15px;font-weight:600;line-height:22px;font-variant-numeric:tabular-nums}',
@@ -43,11 +58,18 @@ window.__ModuleLoader__.load({
       '.duc-state.is-available{color:var(--dsw-alias-brand-primary)}',
       '.duc-state.is-latest{color:var(--dsw-alias-label-secondary)}',
       '.duc-error{margin:0;color:var(--dsw-alias-state-error-primary);font-size:13px;line-height:20px}',
-      '.duc-notes-label{margin:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
-      '.duc-notes{margin:0;max-height:190px;overflow:auto;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:19px;white-space:pre-wrap;word-break:break-word}',
+      '.duc-label{margin:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
+      '.duc-notes{margin:0;max-height:200px;overflow:auto;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:19px;white-space:pre-wrap;word-break:break-word;font-family:inherit}',
+      '.duc-log{display:flex;flex-direction:column;gap:10px;max-height:260px;overflow:auto;padding-right:2px}',
+      '.duc-log-item{border:1px solid var(--dsw-alias-border-l2);border-radius:12px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}',
+      '.duc-log-head{display:flex;align-items:baseline;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}',
+      '.duc-log-ver{font-size:13px;font-weight:600}',
+      '.duc-log-date{font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+      '.duc-log-body{margin:0;padding:10px 12px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:19px;white-space:pre-wrap;word-break:break-word;font-family:inherit;max-height:190px;overflow:auto}',
       '.duc-bar{position:relative;height:8px;border-radius:999px;background:var(--dsw-alias-border-l2);overflow:hidden}',
       '.duc-bar-fill{position:absolute;inset:0 auto 0 0;border-radius:999px;background:var(--dsw-alias-brand-primary);transition:width 200ms ease}',
       '.duc-bar-text{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}',
+      '.duc-restart{padding:10px 12px;border-radius:12px;border:1px solid var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-subtle, rgba(77,107,254,.10));font-size:13px;line-height:20px}',
       '.duc-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:2px}',
       '.duc-action{appearance:none;display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}',
       '.duc-action:hover:not(:disabled){background:var(--dsw-alias-button-floating-hover)}',
@@ -78,49 +100,75 @@ window.__ModuleLoader__.load({
         trigger: '检查更新',
         kicker: '应用更新',
         title: '检查更新',
+        tabApp: '应用本体',
+        tabCore: '核心（DSH）',
         current: '当前版本',
         latest: '最新版本',
         checking: '正在检查…',
         upToDate: '已是最新版本。',
         noRelease: '还没有已发布的版本，等作者发第一版后就能在这里更新。',
-        available: (v) => `发现新版本 v${v}。`,
+        available: (v) => `发现新版本 ${v}。`,
+        sourceApp: '来源：GitHub Release',
         notes: '更新说明',
         noNotes: '（这一版没有填写更新说明）',
         download: '下载更新',
         downloading: '正在下载…',
         downloadedHint: '安装包已下载完成。',
         install: '立即安装',
-        installing: '已启动安装程序',
         installHint: '安装程序已打开，请按提示完成。若提示文件被占用，请先退出本应用再重试。',
         recheck: '重新检查',
         openReleases: '打开发布页',
         close: '关闭',
         desktopOnly: '检查更新仅在桌面客户端内可用。用手机遥控打开时无法更新，请到电脑上操作。',
         failed: '检查更新失败',
+        coreSub: '内核来自 npm 官方源，与应用本体各自独立更新。',
+        coreLog: '更新日志',
+        coreNoLog: '（官方未提供这些版本的发布说明）',
+        coreInstall: '下载并安装内核',
+        coreWorking: '正在处理…',
+        coreStagePlan: '正在核对要更新的包…',
+        coreStageDownload: '正在下载内核包…',
+        coreStageApply: '正在替换文件…',
+        coreDone: (from, to) => `内核已从 ${from} 更新到 ${to}。`,
+        coreRestart: '请重启应用以应用更新。当前运行的仍是旧内核，重启后生效。',
+        coreSource: '来源：npm 官方源 @deepseek-ai/dsh',
       },
       en: {
         trigger: 'Check for updates',
         kicker: 'App update',
         title: 'Check for updates',
+        tabApp: 'Application',
+        tabCore: 'Core (DSH)',
         current: 'Current',
         latest: 'Latest',
         checking: 'Checking…',
         upToDate: 'You are on the latest version.',
         noRelease: 'No release published yet — this will work once the first version ships.',
-        available: (v) => `Version v${v} is available.`,
+        available: (v) => `Version ${v} is available.`,
+        sourceApp: 'Source: GitHub Release',
         notes: 'Release notes',
         noNotes: '(No release notes for this version)',
         download: 'Download update',
         downloading: 'Downloading…',
         downloadedHint: 'The installer has been downloaded.',
         install: 'Install now',
-        installing: 'Installer launched',
         installHint: 'The installer is open — follow its prompts. If it reports files in use, quit this app and try again.',
         recheck: 'Check again',
         openReleases: 'Open releases',
         close: 'Close',
         desktopOnly: 'Updates are only available in the desktop app, not over the mobile remote.',
         failed: 'Update check failed',
+        coreSub: 'The core comes from the official npm registry and updates independently.',
+        coreLog: 'Changelog',
+        coreNoLog: '(No release notes published for these versions)',
+        coreInstall: 'Download and install core',
+        coreWorking: 'Working…',
+        coreStagePlan: 'Resolving packages…',
+        coreStageDownload: 'Downloading core packages…',
+        coreStageApply: 'Replacing files…',
+        coreDone: (from, to) => `Core updated from ${from} to ${to}.`,
+        coreRestart: 'Restart the app to apply the update. The running kernel is still the old one.',
+        coreSource: 'Source: official npm registry @deepseek-ai/dsh',
       },
     }
 
@@ -129,47 +177,59 @@ window.__ModuleLoader__.load({
       return String(lang).toLowerCase().startsWith('en') ? copy.en : copy.zh
     }
 
-    function IconUpdate({ size = 18 }) {
-      return h('svg', {
-        width: size,
-        height: size,
-        viewBox: '0 0 16 16',
-        fill: 'none',
-        'aria-hidden': 'true',
-      },
-        h('path', {
-          d: 'M8 2.5v6.1',
-          stroke: 'currentColor',
-          strokeWidth: 1.35,
-          strokeLinecap: 'round',
-        }),
-        h('path', {
-          d: 'M5.3 6.3 8 9l2.7-2.7',
-          stroke: 'currentColor',
-          strokeWidth: 1.35,
-          strokeLinecap: 'round',
-          strokeLinejoin: 'round',
-        }),
-        h('path', {
-          d: 'M3.1 11v1.2c0 .6.5 1.1 1.1 1.1h7.6c.6 0 1.1-.5 1.1-1.1V11',
-          stroke: 'currentColor',
-          strokeWidth: 1.35,
-          strokeLinecap: 'round',
-        }))
-    }
-
     function formatBytes(n) {
       if (!Number.isFinite(n) || n <= 0) return ''
       const mb = n / 1024 / 1024
       return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`
     }
 
-    function UpdateButton({ wide }) {
-      const t = locale()
-      const api = React.useMemo(() => bridge(), [])
+    function formatDate(iso) {
+      if (!iso) return ''
+      const d = new Date(iso)
+      if (Number.isNaN(d.getTime())) return ''
+      const p = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    }
 
-      const [open, setOpen] = React.useState(false)
-      const [phase, setPhase] = React.useState('idle') // idle|checking|latest|no-release|available|downloading|downloaded|error
+    function IconUpdate({ size = 18 }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true',
+      },
+        h('path', { d: 'M8 2.5v6.1', stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round' }),
+        h('path', { d: 'M5.3 6.3 8 9l2.7-2.7', stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        h('path', { d: 'M3.1 11v1.2c0 .6.5 1.1 1.1 1.1h7.6c.6 0 1.1-.5 1.1-1.1V11', stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round' }))
+    }
+
+    function Versions({ t, current, latest }) {
+      return h('dl', { className: 'duc-versions' },
+        h('div', { className: 'duc-version' },
+          h('dt', null, t.current),
+          h('dd', null, current ? `v${String(current).replace(/^v/i, '')}` : '—'),
+        ),
+        latest
+          ? h('div', { className: 'duc-version' },
+            h('dt', null, t.latest),
+            h('dd', null, `v${String(latest).replace(/^v/i, '')}`),
+          )
+          : null,
+      )
+    }
+
+    function Progress({ percent, received, total }) {
+      return h('div', null,
+        h('div', { className: 'duc-bar' },
+          h('div', { className: 'duc-bar-fill', style: { width: `${percent || 0}%` } }),
+        ),
+        h('p', { className: 'duc-bar-text' },
+          `${percent || 0}%` + (total ? `  ·  ${formatBytes(received)} / ${formatBytes(total)}` : ''),
+        ),
+      )
+    }
+
+    // ---------------------------------------------------------------- 应用本体
+
+    function AppTab({ t, api, onAvailability }) {
+      const [phase, setPhase] = React.useState('idle')
       const [info, setInfo] = React.useState(null)
       const [result, setResult] = React.useState(null)
       const [progress, setProgress] = React.useState(null)
@@ -177,22 +237,265 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [notice, setNotice] = React.useState('')
 
-      const closeRef = React.useRef(null)
-
-      // 下载进度：订阅 + 卸载时务必退订，否则每次开关面板都会堆一个监听器
       React.useEffect(() => {
         if (!api) return undefined
-        return api.onProgress((p) => setProgress(p))
+        return api.update.onProgress((p) => setProgress(p))
       }, [api])
 
       React.useEffect(() => {
         if (!api) return undefined
         let alive = true
-        api.info().then((value) => {
-          if (alive && value && value.ok) setInfo(value)
-        }).catch(() => {})
+        api.update.info().then((v) => { if (alive && v && v.ok) setInfo(v) }).catch(() => {})
         return () => { alive = false }
       }, [api])
+
+      const runCheck = React.useCallback(async () => {
+        if (!api) return
+        setPhase('checking'); setError(''); setNotice('')
+        try {
+          const v = await api.update.check()
+          if (!v || v.ok !== true) {
+            setPhase('error'); setError((v && v.error) || t.failed); onAvailability(false); return
+          }
+          setResult(v)
+          if (v.status === 'available') { setPhase('available'); onAvailability(true) }
+          else if (v.status === 'no-release') { setPhase('no-release'); onAvailability(false) }
+          else { setPhase('latest'); onAvailability(false) }
+        } catch (err) {
+          setPhase('error'); setError(err instanceof Error ? err.message : t.failed); onAvailability(false)
+        }
+      }, [api, t, onAvailability])
+
+      React.useEffect(() => { if (phase === 'idle' && api) void runCheck() }, [phase, api, runCheck])
+
+      const runDownload = React.useCallback(async () => {
+        if (!api || !result || !result.asset) return
+        setPhase('downloading'); setError('')
+        setProgress({ received: 0, total: result.asset.size || 0, percent: 0 })
+        try {
+          const v = await api.update.download(result.asset)
+          if (!v || v.ok !== true) { setPhase('available'); setError((v && v.error) || '下载失败。'); return }
+          setFilePath(v.filePath || ''); setPhase('downloaded')
+        } catch (err) { setPhase('available'); setError(err instanceof Error ? err.message : '下载失败。') }
+      }, [api, result])
+
+      const runInstall = React.useCallback(async () => {
+        if (!api || !filePath) return
+        setError('')
+        const v = await api.update.install(filePath)
+        if (!v || v.ok !== true) { setError((v && v.error) || '无法启动安装程序。'); return }
+        setNotice(t.installHint)
+      }, [api, filePath, t])
+
+      const state = (() => {
+        if (phase === 'checking') return h('p', { className: 'duc-state is-latest' }, t.checking)
+        if (phase === 'latest') return h('p', { className: 'duc-state is-latest' }, t.upToDate)
+        if (phase === 'no-release') return h('p', { className: 'duc-state is-latest' }, t.noRelease)
+        if (phase === 'available' || phase === 'downloading' || phase === 'downloaded') {
+          return h('p', { className: 'duc-state is-available' }, t.available((result && result.latestVersion) || ''))
+        }
+        return null
+      })()
+
+      return h('div', { className: 'duc-body' },
+        h('p', { className: 'duc-state is-latest' }, t.sourceApp),
+        h(Versions, { t, current: info && info.currentVersion, latest: result && result.latestVersion }),
+        state,
+
+        (phase === 'available' || phase === 'downloading' || phase === 'downloaded')
+          ? h('div', null,
+            h('p', { className: 'duc-label' }, t.notes),
+            h('pre', { className: 'duc-notes' }, (result && result.notes && result.notes.trim()) || t.noNotes),
+          )
+          : null,
+
+        phase === 'downloading'
+          ? h(Progress, { percent: (progress && progress.percent) || 0, received: progress && progress.received, total: progress && progress.total })
+          : null,
+        phase === 'downloaded' ? h('p', { className: 'duc-state is-latest' }, t.downloadedHint) : null,
+        notice ? h('p', { className: 'duc-state is-latest', role: 'status' }, notice) : null,
+        phase === 'error' && error ? h('p', { className: 'duc-error', role: 'alert' }, error) : null,
+
+        h('div', { className: 'duc-actions' },
+          h('button', {
+            type: 'button', className: 'duc-link',
+            onClick: () => { if (api) void api.update.openReleases() },
+          }, t.openReleases),
+
+          phase === 'downloading'
+            ? h('button', { type: 'button', className: 'duc-action', disabled: true }, t.downloading)
+            : null,
+
+          phase === 'available'
+            ? h('button', {
+              type: 'button', className: 'duc-action duc-action-primary',
+              disabled: !result || !result.asset,
+              onClick: () => { void runDownload() },
+            }, t.download)
+            : null,
+
+          phase === 'downloaded'
+            ? h('button', {
+              type: 'button', className: 'duc-action duc-action-primary',
+              onClick: () => { void runInstall() },
+            }, t.install)
+            : null,
+
+          (phase === 'latest' || phase === 'no-release' || phase === 'error')
+            ? h('button', { type: 'button', className: 'duc-action', onClick: () => { void runCheck() } }, t.recheck)
+            : null,
+        ),
+      )
+    }
+
+    // ---------------------------------------------------------------- 核心
+
+    function CoreTab({ t, api, onAvailability }) {
+      const [phase, setPhase] = React.useState('idle')
+      const [info, setInfo] = React.useState(null)
+      const [result, setResult] = React.useState(null)
+      const [progress, setProgress] = React.useState(null)
+      const [error, setError] = React.useState('')
+      const [done, setDone] = React.useState(null)
+
+      React.useEffect(() => {
+        if (!api) return undefined
+        return api.core.onProgress((p) => setProgress(p))
+      }, [api])
+
+      React.useEffect(() => {
+        if (!api) return undefined
+        let alive = true
+        api.core.info().then((v) => { if (alive && v && v.ok) setInfo(v) }).catch(() => {})
+        return () => { alive = false }
+      }, [api])
+
+      const runCheck = React.useCallback(async () => {
+        if (!api) return
+        setPhase('checking'); setError(''); setDone(null)
+        try {
+          const v = await api.core.check()
+          if (!v || v.ok !== true) {
+            setPhase('error'); setError((v && v.error) || t.failed); onAvailability(false); return
+          }
+          setResult(v)
+          if (v.status === 'available') { setPhase('available'); onAvailability(true) }
+          else { setPhase('latest'); onAvailability(false) }
+        } catch (err) {
+          setPhase('error'); setError(err instanceof Error ? err.message : t.failed); onAvailability(false)
+        }
+      }, [api, t, onAvailability])
+
+      React.useEffect(() => { if (phase === 'idle' && api) void runCheck() }, [phase, api, runCheck])
+
+      const runInstall = React.useCallback(async () => {
+        if (!api || !result || !result.latestVersion) return
+        setPhase('working'); setError(''); setProgress({ stage: 'plan', percent: 0 })
+        try {
+          const v = await api.core.install(result.latestVersion)
+          if (!v || v.ok !== true) { setPhase('available'); setError((v && v.error) || '核心更新失败。'); return }
+          setDone(v); setPhase('done'); onAvailability(false)
+        } catch (err) {
+          setPhase('available'); setError(err instanceof Error ? err.message : '核心更新失败。')
+        }
+      }, [api, result, onAvailability])
+
+      const stageText = progress && progress.stage === 'download' ? t.coreStageDownload
+        : progress && progress.stage === 'apply' ? t.coreStageApply
+          : t.coreStagePlan
+
+      const log = (result && Array.isArray(result.changelog)) ? result.changelog : []
+
+      return h('div', { className: 'duc-body' },
+        h('p', { className: 'duc-state is-latest' }, t.coreSource),
+        h('p', { className: 'duc-state is-latest' }, t.coreSub),
+        h(Versions, {
+          t,
+          current: (info && info.currentVersion) || (result && result.currentVersion),
+          latest: result && result.latestVersion,
+        }),
+
+        phase === 'checking' ? h('p', { className: 'duc-state is-latest' }, t.checking) : null,
+        phase === 'latest' ? h('p', { className: 'duc-state is-latest' }, t.upToDate) : null,
+        (phase === 'available' || phase === 'working')
+          ? h('p', { className: 'duc-state is-available' }, t.available((result && result.latestVersion) || ''))
+          : null,
+
+        // 详细更新日志：逐版本列出发布时间与官方发布正文
+        log.length > 0
+          ? h('div', null,
+            h('p', { className: 'duc-label' }, `${t.coreLog}（${log.length}）`),
+            h('div', { className: 'duc-log' },
+              log.map((item) => h('div', { className: 'duc-log-item', key: item.version },
+                h('div', { className: 'duc-log-head' },
+                  h('span', { className: 'duc-log-ver' }, item.version),
+                  item.date ? h('span', { className: 'duc-log-date' }, formatDate(item.date)) : null,
+                ),
+                h('pre', { className: 'duc-log-body' }, item.notes || t.coreNoLog),
+              )),
+            ),
+          )
+          : null,
+
+        phase === 'working'
+          ? h('div', null,
+            h('p', { className: 'duc-state is-latest' }, stageText),
+            h(Progress, { percent: (progress && progress.percent) || 0 }),
+          )
+          : null,
+
+        done
+          ? h('div', null,
+            h('p', { className: 'duc-state is-available' }, t.coreDone(done.from, done.to)),
+            h('p', { className: 'duc-restart', role: 'status' }, t.coreRestart),
+          )
+          : null,
+
+        error ? h('p', { className: 'duc-error', role: 'alert' }, error) : null,
+
+        h('div', { className: 'duc-actions' },
+          h('button', {
+            type: 'button', className: 'duc-link',
+            onClick: () => { if (api) void api.core.openReleases() },
+          }, t.openReleases),
+
+          phase === 'working'
+            ? h('button', { type: 'button', className: 'duc-action', disabled: true }, t.coreWorking)
+            : null,
+
+          phase === 'available'
+            ? h('button', {
+              type: 'button', className: 'duc-action duc-action-primary',
+              onClick: () => { void runInstall() },
+            }, t.coreInstall)
+            : null,
+
+          (phase === 'latest' || phase === 'error' || phase === 'done')
+            ? h('button', { type: 'button', className: 'duc-action', onClick: () => { void runCheck() } }, t.recheck)
+            : null,
+        ),
+      )
+    }
+
+    // ---------------------------------------------------------------- 入口
+
+    function UpdateButton({ wide }) {
+      const t = locale()
+      const api = React.useMemo(() => bridge(), [])
+      const [open, setOpen] = React.useState(false)
+      const [tab, setTab] = React.useState('app')
+      const [appNew, setAppNew] = React.useState(false)
+      const [coreNew, setCoreNew] = React.useState(false)
+
+      // 左上角菜单「检查更新」→ 打开面板并切到对应轨道
+      React.useEffect(() => {
+        const n = native()
+        if (!n || typeof n.onOpenPanel !== 'function') return undefined
+        return n.onOpenPanel((next) => {
+          setTab(next === 'core' ? 'core' : 'app')
+          setOpen(true)
+        })
+      }, [])
 
       React.useEffect(() => {
         if (!open) return undefined
@@ -201,182 +504,33 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey)
       }, [open])
 
-      const runCheck = React.useCallback(async () => {
-        if (!api) return
-        setPhase('checking')
-        setError('')
-        setNotice('')
-        try {
-          const value = await api.check()
-          if (!value || value.ok !== true) {
-            setPhase('error')
-            setError((value && value.error) || t.failed)
-            return
-          }
-          setResult(value)
-          if (value.status === 'available') setPhase('available')
-          else if (value.status === 'no-release') setPhase('no-release')
-          else setPhase('latest')
-        } catch (err) {
-          setPhase('error')
-          setError(err instanceof Error ? err.message : t.failed)
-        }
-      }, [api, t])
+      const hasDot = appNew || coreNew
 
-      // 打开面板时自动查一次，省掉一次点击
-      React.useEffect(() => {
-        if (!open || !api) return
-        if (phase === 'idle') void runCheck()
-      }, [open, api, phase, runCheck])
-
-      const runDownload = React.useCallback(async () => {
-        if (!api || !result || !result.asset) return
-        setPhase('downloading')
-        setError('')
-        setProgress({ received: 0, total: result.asset.size || 0, percent: 0 })
-        try {
-          const value = await api.download(result.asset)
-          if (!value || value.ok !== true) {
-            setPhase('available')
-            setError((value && value.error) || '下载失败。')
-            return
-          }
-          setFilePath(value.filePath || '')
-          setPhase('downloaded')
-        } catch (err) {
-          setPhase('available')
-          setError(err instanceof Error ? err.message : '下载失败。')
-        }
-      }, [api, result])
-
-      const runInstall = React.useCallback(async () => {
-        if (!api || !filePath) return
-        setError('')
-        const value = await api.install(filePath)
-        if (!value || value.ok !== true) {
-          setError((value && value.error) || '无法启动安装程序。')
-          return
-        }
-        setNotice(t.installHint)
-      }, [api, filePath, t])
-
-      function stateLine() {
-        if (!api) return h('p', { className: 'duc-state is-latest' }, t.desktopOnly)
-        if (phase === 'checking') return h('p', { className: 'duc-state is-latest' }, t.checking)
-        if (phase === 'latest') return h('p', { className: 'duc-state is-latest' }, t.upToDate)
-        if (phase === 'no-release') return h('p', { className: 'duc-state is-latest' }, t.noRelease)
-        if (phase === 'available' || phase === 'downloading' || phase === 'downloaded') {
-          const v = result && result.latestVersion
-          return h('p', { className: 'duc-state is-available' }, t.available(v || ''))
-        }
-        if (phase === 'error') return h('p', { className: 'duc-error', role: 'alert' }, error || t.failed)
-        return null
+      function tabButton(id, label, dot) {
+        return h('button', {
+          type: 'button',
+          className: 'duc-tab' + (tab === id ? ' active' : ''),
+          onClick: () => setTab(id),
+        }, label, dot ? h('span', { className: 'duc-tab-dot' }) : null)
       }
 
       const dialog = open
         ? ReactDOM.createPortal(
           h('div', { className: 'duc-overlay', role: 'presentation' },
             h('div', { className: 'duc-mask', onClick: () => setOpen(false) }),
-            h('div', {
-              className: 'duc-panel',
-              role: 'dialog',
-              'aria-modal': 'true',
-              'aria-label': t.title,
-            },
+            h('div', { className: 'duc-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title },
               h('p', { className: 'duc-kicker' }, t.kicker),
-              h('h2', { className: 'duc-title' }, t.title),
-
-              h('dl', { className: 'duc-versions' },
-                h('div', { className: 'duc-version' },
-                  h('dt', null, t.current),
-                  h('dd', null, `v${(info && info.currentVersion) || '—'}`),
-                ),
-                result && result.latestVersion
-                  ? h('div', { className: 'duc-version' },
-                    h('dt', null, t.latest),
-                    h('dd', null, `v${result.latestVersion}`),
-                  )
-                  : null,
+              h('div', { className: 'duc-tabs' },
+                tabButton('app', t.tabApp, appNew),
+                tabButton('core', t.tabCore, coreNew),
               ),
-
-              stateLine(),
-
-              // 更新说明
-              (phase === 'available' || phase === 'downloading' || phase === 'downloaded')
-                ? h('div', null,
-                  h('p', { className: 'duc-notes-label' }, t.notes),
-                  h('pre', { className: 'duc-notes' }, (result && result.notes && result.notes.trim()) || t.noNotes),
-                )
-                : null,
-
-              // 下载进度
-              phase === 'downloading'
-                ? h('div', null,
-                  h('div', { className: 'duc-bar' },
-                    h('div', {
-                      className: 'duc-bar-fill',
-                      style: { width: `${(progress && progress.percent) || 0}%` },
-                    }),
-                  ),
-                  h('p', { className: 'duc-bar-text' },
-                    `${(progress && progress.percent) || 0}%`
-                    + (progress && progress.total
-                      ? `  ·  ${formatBytes(progress.received)} / ${formatBytes(progress.total)}`
-                      : ''),
-                  ),
-                )
-                : null,
-
-              // 已下载
-              phase === 'downloaded'
-                ? h('p', { className: 'duc-state is-latest' }, t.downloadedHint)
-                : null,
-
-              notice ? h('p', { className: 'duc-state is-latest', role: 'status' }, notice) : null,
-              phase === 'error' && error ? h('p', { className: 'duc-error', role: 'alert' }, error) : null,
-
+              api
+                ? (tab === 'core'
+                  ? h(CoreTab, { t, api, onAvailability: setCoreNew })
+                  : h(AppTab, { t, api, onAvailability: setAppNew }))
+                : h('div', { className: 'duc-body' }, h('p', { className: 'duc-state is-latest' }, t.desktopOnly)),
               h('div', { className: 'duc-actions' },
-                h('button', {
-                  type: 'button',
-                  className: 'duc-link',
-                  onClick: () => { if (api) void api.openReleases() },
-                }, t.openReleases),
-
-                h('button', {
-                  ref: closeRef,
-                  type: 'button',
-                  className: 'duc-action duc-right',
-                  onClick: () => setOpen(false),
-                }, t.close),
-
-                phase === 'downloading'
-                  ? h('button', { type: 'button', className: 'duc-action', disabled: true }, t.downloading)
-                  : null,
-
-                phase === 'available'
-                  ? h('button', {
-                    type: 'button',
-                    className: 'duc-action duc-action-primary',
-                    disabled: !result || !result.asset,
-                    onClick: () => { void runDownload() },
-                  }, t.download)
-                  : null,
-
-                phase === 'downloaded'
-                  ? h('button', {
-                    type: 'button',
-                    className: 'duc-action duc-action-primary',
-                    onClick: () => { void runInstall() },
-                  }, t.install)
-                  : null,
-
-                phase === 'latest' || phase === 'no-release' || phase === 'error'
-                  ? h('button', {
-                    type: 'button',
-                    className: 'duc-action',
-                    onClick: () => { void runCheck() },
-                  }, t.recheck)
-                  : null,
+                h('button', { type: 'button', className: 'duc-action duc-right', onClick: () => setOpen(false) }, t.close),
               ),
             ),
           ),
@@ -388,9 +542,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: wide === false ? 'duc' : 'duc duc-wide' },
         h('button', {
           type: 'button',
-          className: 'duc-btn'
-            + (open ? ' is-open' : '')
-            + (phase === 'checking' || phase === 'downloading' ? ' is-busy' : ''),
+          className: 'duc-btn' + (open ? ' is-open' : ''),
           title: t.trigger,
           'aria-label': t.trigger,
           'aria-haspopup': 'dialog',
@@ -398,7 +550,7 @@ window.__ModuleLoader__.load({
           onClick: () => setOpen(true),
         },
           h(IconUpdate, { size: 18 }),
-          phase === 'available' || phase === 'downloaded' ? h('span', { className: 'duc-dot' }) : null,
+          hasDot ? h('span', { className: 'duc-dot' }) : null,
         ),
         dialog,
       )
@@ -407,16 +559,11 @@ window.__ModuleLoader__.load({
     const inject = ['slots']
 
     function apply(ctx) {
-      // sidebar.footer.action —— 侧栏左下角（与「设置」同区）的动作槽位。
-      // order -90：排在 dsh-web-restart(-100) 右边，两者并排不打架。
       ctx.slots.inject(SLOT, () => {
         let dispose
         try {
-          dispose = ctx.slots.register({
-            name: SLOT,
-            id: 'dsh-update-check',
-            order: -90,
-          }, (props) => h(UpdateButton, { wide: props && props.wide }))
+          dispose = ctx.slots.register({ name: SLOT, id: 'dsh-update-check', order: -90 },
+            (props) => h(UpdateButton, { wide: props && props.wide }))
         } catch {
           dispose = undefined
         }

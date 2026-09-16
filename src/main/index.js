@@ -4,7 +4,6 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { findFreePort } from './port-finder.js'
 import { ServerManager, augmentGlobalPath } from './server-manager.js'
-import { encodeRelayToken, parseRelayToken } from './relay-token.js'
 import {
   checkForUpdates,
   downloadUpdate,
@@ -13,6 +12,15 @@ import {
   openReleasesPage,
   RELEASES_PAGE,
 } from './updater.js'
+import {
+  CORE_RELEASES_PAGE,
+  applyCoreUpdate,
+  checkCoreUpdate,
+  cleanStaging,
+  downloadCoreUpdate,
+  installedCoreVersion,
+  planCoreUpdate,
+} from './core-updater.js'
 
 // 在启动初期增强 PATH，解决 macOS/Linux GUI 应用丢失终端环境变量的通病
 augmentGlobalPath()
@@ -199,6 +207,86 @@ ipcMain.handle('jackdsh:update-open-releases', async () => {
     return { ok: false, error: '无法打开发布页。' }
   }
 })
+
+// ---------------------------------------------------------------------------
+// 核心（DSH 内核）更新
+//
+// 与应用本体更新的关键差别：内核是 200+ 个同版本锁步包，替换前要整组下载并校验。
+// 替换**不停止内核进程**——Node 已把 JS 读进内存，改盘上的文件不影响当前运行；
+// 真正的生效点是下次启动，所以界面只需提示「重启应用」。
+// ---------------------------------------------------------------------------
+ipcMain.handle('jackdsh:core-info', async () => ({
+  ok: true,
+  currentVersion: installedCoreVersion(),
+  releasesPage: CORE_RELEASES_PAGE,
+}))
+
+ipcMain.handle('jackdsh:core-check', async () => {
+  try {
+    return await checkCoreUpdate()
+  } catch (error) {
+    updateLogger('core check failed', error)
+    return { ok: false, error: `检查核心更新失败：${error instanceof Error ? error.message : String(error)}` }
+  }
+})
+
+ipcMain.handle('jackdsh:core-install', async (event, targetVersion) => {
+  const sender = event.sender
+  const emit = (payload) => {
+    if (!sender.isDestroyed()) sender.send('jackdsh:core-progress', payload)
+  }
+  if (typeof targetVersion !== 'string' || targetVersion.trim() === '') {
+    return { ok: false, error: '缺少目标版本号，请先检查更新。' }
+  }
+  try {
+    emit({ stage: 'plan', percent: 0 })
+    const plan = await planCoreUpdate(targetVersion.trim())
+    if (!plan.ok) return plan
+
+    emit({ stage: 'download', percent: 0, total: plan.count })
+    const fetched = await downloadCoreUpdate(plan, (p) => {
+      emit({ stage: 'download', ...p, total: plan.count })
+    })
+    if (!fetched.ok) return fetched
+
+    emit({ stage: 'apply', percent: 100 })
+    const applied = await applyCoreUpdate(plan, fetched.stagedDir)
+    if (!applied.ok) return applied
+
+    cleanStaging(plan.targetVersion)
+    emit({ stage: 'done', percent: 100 })
+    return { ok: true, from: applied.from, to: applied.to, applied: applied.applied }
+  } catch (error) {
+    updateLogger('core install failed', error)
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, error: `核心更新失败：${message}` }
+  }
+})
+
+ipcMain.handle('jackdsh:core-open-releases', async () => {
+  try {
+    await shell.openExternal(CORE_RELEASES_PAGE)
+    return { ok: true }
+  } catch (error) {
+    updateLogger('open core releases failed', error)
+    return { ok: false, error: '无法打开官方发行页。' }
+  }
+})
+
+/**
+ * 菜单「检查更新」→ 打开渲染层那个面板，并定位到指定轨道。
+ *
+ * 用 electron 菜单唤起（而不是让菜单自己也弹一套 dialog）的好处是：
+ * 两条轨道共用同一份 UI 与状态，不会出现「菜单里查到的新版本、面板里看不到」。
+ */
+function openUpdatePanel(tab) {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  win.webContents.send('jackdsh:update-open-panel', tab === 'core' ? 'core' : 'app')
+}
 
 /**
  * 为 macOS 沉浸式标题栏（hiddenInset）注入精细化拖拽支持与交互防护：
@@ -392,115 +480,15 @@ function setupApplicationMenu(win) {
       ],
     },
     {
-      label: '公网远程中转',
+      label: '检查更新',
       submenu: [
         {
-          label: '查看中转连接状态',
-          click: async () => {
-            const status = serverManager?.tunnelClient?.getStatus() || { connected: false }
-            const config = serverManager?.getRelayConfig() || {}
-            dialog.showMessageBox(win, {
-              type: status.connected ? 'info' : 'warning',
-              title: '公网远程中转状态',
-              message: status.connected ? '🟢 公网中继已连接' : '⚪️ 公网中继未连接',
-              detail: `服务端: ${config.server || '未配置'}\n公网入口: ${config.publicBaseUrl || '自适应'}\n本地端口: ${serverManager?.port || 'N/A'}\n最近连接时间: ${status.lastConnectedAt || '无'}\n当前活动请求数: ${status.activeRequests || 0}${status.lastError ? '\n最近报错: ' + status.lastError : ''}`,
-            })
-          },
-        },
-        { type: 'separator' },
-        {
-          label: '从剪贴板导入中转口令 (Magic Token)...',
-          click: async () => {
-            const clipText = clipboard.readText().trim()
-            let parsedConfig = null
-            try {
-              if (clipText) {
-                parsedConfig = parseRelayToken(clipText)
-              }
-            } catch {}
-
-            if (parsedConfig) {
-              const res = await dialog.showMessageBox(win, {
-                type: 'question',
-                title: '检测到中转口令',
-                message: '是否立即导入并激活剪贴板中的中转配置？',
-                detail: `服务端: ${parsedConfig.server}\n公网入口: ${parsedConfig.publicBaseUrl || '自适应'}`,
-                buttons: ['立即导入并激活', '取消'],
-                defaultId: 0,
-                cancelId: 1,
-              })
-              if (res.response === 0) {
-                serverManager.saveRelayConfig(parsedConfig)
-                await dialog.showMessageBox(win, {
-                  type: 'info',
-                  title: '导入成功',
-                  message: '公网中继配置已生效并自动连通！',
-                  detail: '手机远程已同步注入公网地址，扫码即可直接连接。',
-                })
-              }
-            } else {
-              await dialog.showMessageBox(win, {
-                type: 'info',
-                title: '导入中转口令',
-                message: '未在剪贴板中检测到有效的 jds://relay 口令',
-                detail: '请先在家里电脑复制中转口令，或使用命令行：\nnode tools/relay/token-cli.mjs import "<口令>"',
-              })
-            }
-          },
+          label: '应用本体更新…',
+          click: () => openUpdatePanel('app'),
         },
         {
-          label: '复制当前中转口令到剪贴板',
-          click: async () => {
-            const config = serverManager?.getRelayConfig()
-            if (!config || !config.server || !config.token) {
-              dialog.showMessageBox(win, {
-                type: 'warning',
-                title: '未配置中转',
-                message: '当前尚未配置公网中转服务器，无法生成口令。',
-              })
-              return
-            }
-            const tokenStr = encodeRelayToken(config)
-            clipboard.writeText(tokenStr)
-            dialog.showMessageBox(win, {
-              type: 'info',
-              title: '口令已复制',
-              message: '中转口令已成功复制到剪贴板！',
-              detail: `${tokenStr}\n\n你可以在网吧或其他电脑上直接一键导入。`,
-            })
-          },
-        },
-        {
-          label: '测试云端中转连通性',
-          click: async () => {
-            const config = serverManager?.getRelayConfig()
-            if (!config || !config.server) {
-              dialog.showMessageBox(win, {
-                type: 'warning',
-                title: '未配置中转',
-                message: '尚未配置中转服务器。',
-              })
-              return
-            }
-            try {
-              let httpUrl = config.server.replace(/^wss?:\/\//, 'https://').replace(/\/relay\/tunnel.*$/, '/relay/status')
-              const res = await fetch(httpUrl)
-              const data = await res.json()
-              dialog.showMessageBox(win, {
-                type: 'info',
-                title: '云端连通性测试通过',
-                message: '云端中转服务工作正常！',
-                detail: `云端服务返回:\n${JSON.stringify(data, null, 2)}`,
-              })
-            } catch (err) {
-              dialog.showMessageBox(win, {
-                type: 'error',
-                title: '连接失败',
-                message: '无法连通云端中转服务器',
-                detail: err.message,
-              })
-            }
-          },
+          label: '核心更新（DSH 内核）…',
+          click: () => openUpdatePanel('core'),
         },
       ],
     },
@@ -517,7 +505,7 @@ function setupApplicationMenu(win) {
       submenu: [
         {
           label: '打开 GitHub 仓库',
-          click: () => shell.openExternal('https://github.com/JackAIStudio/JackDSH'),
+          click: () => shell.openExternal('https://github.com/poying2018/deepseek-agent'),
         },
       ],
     },

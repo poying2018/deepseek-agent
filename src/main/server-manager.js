@@ -4,7 +4,6 @@ import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS } from './own-plugins.js'
-import { TunnelClient } from './tunnel-client.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -42,8 +41,6 @@ export class ServerManager {
     this.defaultWorkspace = join(this.dshHome, 'workspace')
     this.logFile = join(this.dshHome, 'dsh-web.log')
     this.lastExitCode = null
-    this.relayConfigFile = join(this.dshHome, 'remote-relay.json')
-    this.tunnelClient = null
     // 核心启动时打印的带 token 认证地址（见 awaitAuthToken 的成因说明）
     this.authenticatedUrl = ''
   }
@@ -138,104 +135,6 @@ export class ServerManager {
       return fallbackDir
     } catch {
       return join(this.dshHome, 'workspace')
-    }
-  }
-
-  /**
-   * 读取公网远程中继配置
-   */
-  getRelayConfig() {
-    try {
-      if (existsSync(this.relayConfigFile)) {
-        const raw = readFileSync(this.relayConfigFile, 'utf8')
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object') {
-          return {
-            enabled: Boolean(parsed.enabled),
-            server: (parsed.server || '').trim(),
-            token: (parsed.token || '').trim(),
-            publicBaseUrl: (parsed.publicBaseUrl || '').trim(),
-            updatedAt: parsed.updatedAt || null,
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`[ServerManager] failed to read relay config: ${err.message}`)
-    }
-    return { enabled: false, server: '', token: '', publicBaseUrl: '' }
-  }
-
-  /**
-   * 保存并应用公网远程中继配置
-   */
-  saveRelayConfig(config) {
-    const clean = {
-      enabled: Boolean(config.enabled),
-      server: (config.server || '').trim(),
-      token: (config.token || '').trim(),
-      publicBaseUrl: (config.publicBaseUrl || '').trim().replace(/\/$/, ''),
-      updatedAt: new Date().toISOString(),
-    }
-    try {
-      writeFileSync(this.relayConfigFile, JSON.stringify(clean, null, 2) + '\n')
-    } catch (err) {
-      console.warn(`[ServerManager] failed to write relay config: ${err.message}`)
-    }
-
-    // 同步更新 cordis.patch.yml
-    const profileDir = join(this.dshHome, 'profiles', 'web')
-    const patchPath = join(profileDir, 'cordis.patch.yml')
-    if (existsSync(profileDir)) {
-      this.ensureCordisPatch(patchPath)
-    }
-
-    // 若服务已在运行，动态调整隧道连接
-    if (this.childProcess) {
-      if (clean.enabled && clean.server && clean.token) {
-        console.log(`[ServerManager] Dynamic relay config updated, starting tunnel...`)
-        this.startTunnelClient(clean)
-      } else {
-        console.log(`[ServerManager] Dynamic relay disabled, stopping tunnel...`)
-        this.stopTunnelClient()
-      }
-    }
-    return clean
-  }
-
-  /**
-   * 启动反向隧道客户端
-   */
-  startTunnelClient(configOverride) {
-    const config = configOverride || this.getRelayConfig()
-    if (!config.enabled || !config.server || !config.token) {
-      return
-    }
-    this.stopTunnelClient()
-    this.tunnelClient = new TunnelClient({
-      relayServer: config.server,
-      token: config.token,
-      localPort: this.port,
-      clientId: `jackdsh_${process.platform}`,
-      clientInfo: `DeepSeek Agent Desktop (${process.platform})`,
-    })
-    this.tunnelClient.on('connected', () => {
-      console.log(`[ServerManager] Remote relay tunnel active! (${config.publicBaseUrl || config.server})`)
-    })
-    this.tunnelClient.on('disconnected', ({ code, reason }) => {
-      console.log(`[ServerManager] Remote relay tunnel disconnected: code=${code}`)
-    })
-    this.tunnelClient.start()
-  }
-
-  /**
-   * 停止反向隧道客户端
-   */
-  stopTunnelClient() {
-    if (this.tunnelClient) {
-      try {
-        this.tunnelClient.stop()
-      } catch {}
-      this.tunnelClient = null
     }
   }
 
@@ -456,7 +355,7 @@ export class ServerManager {
       }
     }
 
-    const groups = [this.pickerPatchLines(), clientHmrPatchLines(), this.relayPatchLines()].filter((group) => group.length > 0)
+    const groups = [this.pickerPatchLines(), clientHmrPatchLines()].filter((group) => group.length > 0)
     const managed = groups.flatMap((group, index) => (index === 0 ? group : ['', ...group]))
     const next = spliceManagedRegion(raw, managed)
 
@@ -522,20 +421,6 @@ export class ServerManager {
       '',
       '    - id: directory-picker-browse-surface',
       `      name: '${PICKER_BROWSE_SURFACE}'`,
-    ]
-  }
-
-  /**
-   * 手机远程公网中转入口的补丁行：配置存在时把公网地址注入 dsh-mobile-plus。
-   */
-  relayPatchLines() {
-    const relayConfig = this.getRelayConfig()
-    if (!relayConfig || !relayConfig.enabled || !relayConfig.publicBaseUrl) return []
-    return [
-      '# 手机远程公网中转入口。',
-      '- id: dsh-mobile-plus',
-      '  config:',
-      `    publicBaseUrl: ${relayConfig.publicBaseUrl}`,
     ]
   }
 
@@ -683,7 +568,6 @@ export class ServerManager {
       throw new Error(exitMsg)
     }
 
-    // 公网中转隧道由内置的 dsh-mobile-plus 原生 RelayBridge 统一托管，避免 Electron 主进程产生重复竞争连接
     return authenticatedUrl || serverUrl
   }
 
@@ -789,7 +673,6 @@ export class ServerManager {
    * Stop & clean up child process
    */
   stop() {
-    this.stopTunnelClient()
     if (this.childProcess && !this.childProcess.killed) {
       try {
         this.childProcess.kill('SIGTERM')
