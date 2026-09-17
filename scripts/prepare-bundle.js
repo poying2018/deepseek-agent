@@ -188,10 +188,12 @@ function hasCommand(cmd) {
  * 「入口文件必须存在」的门禁就会直接抛错（这正是它存在的意义：杜绝空壳包）。
  *
  * 策略是「缺什么补什么」，三种情况各自明确：
- *   1. package.json 声明的入口已存在 → 直接返回。已提交产物的插件（如 dsh-today
- *      根目录的 index.js、client.js）命中这条，零额外开销；
- *   2. 入口缺失但声明了 build / prepack 脚本 → 装依赖并就地构建；
- *   3. 入口缺失且没有任何构建脚本 → 不在此处兜底，交给入口门禁抛出可定位的报错。
+ *   1. 全部入口产物（main + exports 里的相对文件）已存在 → 直接返回。已提交产物的
+ *      插件（如 dsh-today 根目录的 index.js、client.js）命中这条，零额外开销；
+ *   2. 产物缺失但声明了 build / prepack / prepare 脚本 → 装依赖并按序补跑
+ *      （每跑完一个复查产物，全齐即停；如 dsh-codearts-auth 需要 prepare 补出
+ *      lib/client/jet-hub.js，光跑 build 不够）；
+ *   3. 产物缺失且没有任何构建脚本 → 不在此处兜底，交给入口门禁抛出可定位的报错。
  *
  * 包管理器优先 pnpm：有 pnpm-lock.yaml / pnpm-workspace.yaml 说明上游用 pnpm，
  * 尊重其锁文件才能得到可复现的产物。CI 由 release.yml 的 pnpm/action-setup 保证可用。
@@ -200,6 +202,26 @@ function hasCommand(cmd) {
  * --config.confirmModulesPurge=false（仅 pnpm）：避免非交互环境因复用 node_modules
  *   卡在确认提示上。
  */
+/**
+ * 收集「入口产物目标」：pkg.main + pkg.exports 里所有 ./相对文件路径（排除 *.json）。
+ * 只看 main 会漏掉形如 exports["./client"] 的客户端 bundle —— dsh-codearts-auth 就是
+ * 这种：tsc 的 build 只产出 lib/index.js，客户端包 lib/client/jet-hub.js 要靠
+ * prepare（= build:all = tsc + esbuild）补上，漏了它 Jet Hub 设置页直接加载失败。
+ */
+function missingEntryFiles(pkg, dir) {
+  const targets = []
+  const pushRel = (v) => {
+    if (typeof v === 'string' && v.startsWith('./') && !v.endsWith('.json')) targets.push(v)
+  }
+  if (typeof pkg.main === 'string') targets.push(pkg.main)
+  const walk = (v) => {
+    if (typeof v === 'string') pushRel(v)
+    else if (v && typeof v === 'object') for (const child of Object.values(v)) walk(child)
+  }
+  if (pkg.exports && typeof pkg.exports === 'object') walk(pkg.exports)
+  return [...new Set(targets)].filter((t) => !existsSync(join(dir, t)))
+}
+
 function ensureRepoBuilt(dir, entry, origin) {
   const pkgPath = join(dir, 'package.json')
   if (!existsSync(pkgPath)) return
@@ -209,10 +231,14 @@ function ensureRepoBuilt(dir, entry, origin) {
   } catch {
     return
   }
-  if (pkg.main && existsSync(join(dir, pkg.main))) return
+  let missing = missingEntryFiles(pkg, dir)
+  if (missing.length === 0) return
 
-  const buildScript = pkg.scripts?.build ? 'build' : pkg.scripts?.prepack ? 'prepack' : null
-  if (!buildScript) return
+  // 依次补跑 build → prepack → prepare，每跑完一个就复查产物；
+  // 全齐了立即停，保持对旧插件（只需一个 build 就够）的行为与原先一致。
+  const scripts = pkg.scripts || {}
+  const order = ['build', 'prepack', 'prepare'].filter((s) => typeof scripts[s] === 'string')
+  if (order.length === 0) return // 交给后面的入口门禁给出可定位的报错
 
   const usePnpm =
     (existsSync(join(dir, 'pnpm-lock.yaml')) || existsSync(join(dir, 'pnpm-workspace.yaml'))) &&
@@ -223,16 +249,27 @@ function ensureRepoBuilt(dir, entry, origin) {
     : 'install --ignore-scripts --no-audit --no-fund'
   const opts = { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }
 
-  console.log(`  🔨 构建插件（${origin} 只含源码，缺 ${pkg.main}）: ${entry.name} → ${pm} run ${buildScript}`)
   try {
     execSync(`${pm} ${installArgs}`, opts)
-    execSync(`${pm} run ${buildScript}`, opts)
   } catch (e) {
     const out = `${e.stdout || ''}${e.stderr || ''}`.trim().split('\n').slice(-12).join('\n')
-    throw new Error(`插件 ${entry.name} 就地构建失败（${pm} run ${buildScript}）:\n${out}`)
+    throw new Error(`插件 ${entry.name} 安装依赖失败（${pm} install）:\n${out}`)
   }
-  if (!existsSync(join(dir, pkg.main))) {
-    throw new Error(`插件 ${entry.name} 构建后仍缺少入口文件 ${pkg.main}，请检查上游的 ${buildScript} 脚本。`)
+
+  for (const script of order) {
+    missing = missingEntryFiles(pkg, dir)
+    if (missing.length === 0) break
+    console.log(`  🔨 构建插件（${origin} 只含源码，缺 ${missing.join(', ')}）: ${entry.name} → ${pm} run ${script}`)
+    try {
+      execSync(`${pm} run ${script}`, opts)
+    } catch (e) {
+      const out = `${e.stdout || ''}${e.stderr || ''}`.trim().split('\n').slice(-12).join('\n')
+      throw new Error(`插件 ${entry.name} 就地构建失败（${pm} run ${script}）:\n${out}`)
+    }
+  }
+  missing = missingEntryFiles(pkg, dir)
+  if (missing.length > 0) {
+    throw new Error(`插件 ${entry.name} 构建后仍缺少入口产物 ${missing.join(', ')}，请检查上游的构建脚本（build/prepack/prepare）。`)
   }
 }
 

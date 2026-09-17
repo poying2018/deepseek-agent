@@ -44,7 +44,14 @@ export const COMMUNITY_PLUGINS = [
   '@mlgbnb/dsh-archive-manager',
   'dsh-codex-timeline',
   '@wxg-prc-cpg/browser-skill-dsh-plugin',
-  'dsh-connect-workbuddy',
+  // 一顶三的账号接入插件（作者 iJetLi，MIT；源在 Gitee，见 plugins.manifest.yaml 的
+  // 详细注释）：codearts（华为云 CodeArts）+ buddy（腾讯 CodeBuddy 中国版）+
+  // workbuddy（WorkBuddy 国际版）三个 LLM provider，自带浏览器登录、静默续期、
+  // Jet Hub 账号池 / 积分签到 / 模型开关。取代了原先的 dsh-connect-workbuddy
+  // （dingminhua v2.0.1，workbuddy provider 由它接管，凭据 ref 同名兼容）。
+  // peerDependencies 明写 ^0.1.2-rc.1，与本发行版内核精确匹配；运行时依赖 jose，
+  // 宿主 node_modules 已有（6.2.10 ≥ ^6.1.3）。
+  'dsh-codearts-auth',
   // 同族：把本机 Trae 账号接成 DSH 的 LLM provider（作者 dingminhua，MIT）。
   // 钉 npm 发行包 1.3.0 而非 latest(2.0.4)：2.x 要求内核 >=0.1.5-0 且 pi-ai >=0.85.1，
   // 而本发行版是 0.1.2-rc.1 + pi-ai 0.84.4，装了会在运行期挂。
