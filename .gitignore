@@ -13,3 +13,4 @@ token*.json
 sessions/
 *.pid
 data/
+.tmp-dshhome-test/
