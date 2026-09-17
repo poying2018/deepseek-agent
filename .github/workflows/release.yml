@@ -41,8 +41,8 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
+        # 不在此写死 version：以 package.json 的 packageManager(pnpm@10.34.5) 为准，
+        # 否则 action-setup 与 packageManager 版本不一致会直接报 ERR_PNPM_BAD_PM_VERSION
 
       - name: Install Dependencies
         run: pnpm install --no-frozen-lockfile
