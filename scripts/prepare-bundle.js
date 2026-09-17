@@ -210,8 +210,17 @@ function hasCommand(cmd) {
  */
 function missingEntryFiles(pkg, dir) {
   const targets = []
+  // 只把「运行期真实入口的 JS 模块」当作必须存在的产物：
+  //  - 跳过含 * 的 glob（如 "./src/*"，exports 里常见，不是真实文件）
+  //  - 跳过 .d.ts 类型声明 / .json / .map 等非运行期入口
+  // 否则 dsh-reminder 这类 exports 含 "./src/*" 与 "./lib/client.d.ts" 的插件
+  // 会被误判为「构建后仍缺入口产物」而报错。
   const pushRel = (v) => {
-    if (typeof v === 'string' && v.startsWith('./') && !v.endsWith('.json')) targets.push(v)
+    if (typeof v !== 'string') return
+    if (!v.startsWith('./')) return
+    if (v.includes('*')) return
+    if (!/\.(js|cjs|mjs)$/.test(v)) return
+    targets.push(v)
   }
   if (typeof pkg.main === 'string') targets.push(pkg.main)
   const walk = (v) => {
