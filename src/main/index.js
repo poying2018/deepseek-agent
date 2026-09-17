@@ -12,17 +12,9 @@ import {
   openReleasesPage,
   RELEASES_PAGE,
 } from './updater.js'
-import {
-  CORE_RELEASES_PAGE,
-  applyCoreUpdate,
-  checkCoreUpdate,
-  cleanStaging,
-  downloadCoreUpdate,
-  installedCoreVersion,
-  planCoreUpdate,
-  repairPendingCoreRestore,
-  verifyCoreBoots,
-} from './core-updater.js'
+
+// 内核（@deepseek-ai/dsh）不再有运行期更新轨道：它随安装包一起发布，
+// 构建前用 `pnpm update-core` 把 package.json 里的内核依赖升到最新即可。
 
 // 在启动初期增强 PATH，解决 macOS/Linux GUI 应用丢失终端环境变量的通病
 augmentGlobalPath()
@@ -211,91 +203,22 @@ ipcMain.handle('jackdsh:update-open-releases', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// 核心（DSH 内核）更新
-//
-// 与应用本体更新的关键差别：内核是 200+ 个同版本锁步包，替换前要整组下载并校验。
-// 替换**不停止内核进程**——Node 已把 JS 读进内存，改盘上的文件不影响当前运行；
-// 真正的生效点是下次启动，所以界面只需提示「重启应用」。
+// 内核（DSH）不做运行期更新：它随安装包整体发布，更新应用本体即更新内核。
 // ---------------------------------------------------------------------------
-ipcMain.handle('jackdsh:core-info', async () => ({
-  ok: true,
-  currentVersion: installedCoreVersion(),
-  releasesPage: CORE_RELEASES_PAGE,
-}))
-
-ipcMain.handle('jackdsh:core-check', async () => {
-  try {
-    return await checkCoreUpdate()
-  } catch (error) {
-    updateLogger('core check failed', error)
-    return { ok: false, error: `检查核心更新失败：${error instanceof Error ? error.message : String(error)}` }
-  }
-})
-
-ipcMain.handle('jackdsh:core-install', async (event, targetVersion) => {
-  const sender = event.sender
-  const emit = (payload) => {
-    if (!sender.isDestroyed()) sender.send('jackdsh:core-progress', payload)
-  }
-  if (typeof targetVersion !== 'string' || targetVersion.trim() === '') {
-    return { ok: false, error: '缺少目标版本号，请先检查更新。' }
-  }
-  try {
-    emit({ stage: 'plan', percent: 0 })
-    const plan = await planCoreUpdate(targetVersion.trim())
-    if (!plan.ok) return plan
-
-    emit({ stage: 'download', percent: 0, total: plan.count })
-    const fetched = await downloadCoreUpdate(plan, (p) => {
-      emit({ stage: 'download', ...p, total: plan.count })
-    })
-    if (!fetched.ok) return fetched
-
-    emit({ stage: 'apply', percent: 0 })
-    const applied = await applyCoreUpdate(plan, fetched.stagedDir, {
-      onProgress: (p) => emit({ stage: p.stage === 'verify' ? 'verify' : 'apply', ...p }),
-      // 替换完真启动一次内核。起不来就整组回滚 —— 光看版本号和文件校验
-      // 发现不了「新版内核要求变了导致插件加载失败」这类问题。
-      verifyBoot: () => verifyCoreBoots({
-        dshHome: serverManager?.dshHome,
-        cwd: serverManager?.defaultWorkspace,
-      }),
-    })
-    if (!applied.ok) return applied
-
-    cleanStaging(plan.targetVersion)
-    emit({ stage: 'done', percent: 100 })
-    return { ok: true, from: applied.from, to: applied.to, applied: applied.applied }
-  } catch (error) {
-    updateLogger('core install failed', error)
-    const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, error: `核心更新失败：${message}` }
-  }
-})
-
-ipcMain.handle('jackdsh:core-open-releases', async () => {
-  try {
-    await shell.openExternal(CORE_RELEASES_PAGE)
-    return { ok: true }
-  } catch (error) {
-    updateLogger('open core releases failed', error)
-    return { ok: false, error: '无法打开官方发行页。' }
-  }
-})
 
 /**
- * 菜单「检查更新」→ 打开渲染层那个面板，并定位到指定轨道。
+ * 菜单「检查更新」→ 打开渲染层那个面板。
  *
  * 用 electron 菜单唤起（而不是让菜单自己也弹一套 dialog）的好处是：
- * 两条轨道共用同一份 UI 与状态，不会出现「菜单里查到的新版本、面板里看不到」。
+ * 菜单和面板共用同一份 UI 与状态，不会出现「菜单里查到的新版本、面板里看不到」。
  */
-function openUpdatePanel(tab) {
+function openUpdatePanel() {
   const win = BrowserWindow.getAllWindows()[0]
   if (!win || win.isDestroyed()) return
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  win.webContents.send('jackdsh:update-open-panel', tab === 'core' ? 'core' : 'app')
+  win.webContents.send('jackdsh:update-open-panel')
 }
 
 /**
@@ -493,12 +416,8 @@ function setupApplicationMenu(win) {
       label: '检查更新',
       submenu: [
         {
-          label: '应用本体更新…',
-          click: () => openUpdatePanel('app'),
-        },
-        {
-          label: '核心更新（DSH 内核）…',
-          click: () => openUpdatePanel('core'),
+          label: '检查更新…',
+          click: () => openUpdatePanel(),
         },
       ],
     },
@@ -673,25 +592,6 @@ app.whenReady().then(async () => {
   // 抢锁失败的实例到此为止：不许建窗口、更不许启动内核。
   // 这条闸不能省 —— 实测过「抢锁失败但 whenReady 仍然跑完」的情形。
   if (!gotTheLock) return
-
-  // ── ⓪ 冷启动补还原（必须在内核拉起之前）─────────────────────────────────
-  // 上一轮内核更新回滚时若有包因 EPERM 没能还原回去，清单会记在
-  // .dsh-core-backup/.dsh-core-repair.json。现在内核还没启动、绝无进程占用
-  // node_modules，是补还原的最佳时机。失败也不拦启动——内核真起不来还有
-  // 后面的启动失败页兜底，报错里会带上具体包名。
-  try {
-    const repair = await repairPendingCoreRestore()
-    if (repair && (repair.repaired.length > 0 || repair.stillBroken.length > 0)) {
-      if (repair.repaired.length > 0) {
-        console.log('[DeepSeek Agent] 已自动补还原上次更新未落地的内核包:', repair.repaired.join(', '))
-      }
-      if (repair.stillBroken.length > 0) {
-        console.error('[DeepSeek Agent] 以下内核包自动补还原仍失败:', repair.stillBroken.join(', '))
-      }
-    }
-  } catch (error) {
-    console.warn('[DeepSeek Agent] 冷启动补还原出错（不拦截启动）:', error?.message || error)
-  }
 
   try {
     app.setAboutPanelOptions({

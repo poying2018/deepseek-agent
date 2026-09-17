@@ -35,30 +35,7 @@ try {
     },
 
     /**
-     * 核心（DSH 内核）更新。走 npm 官方源，与应用本体是两条独立轨道。
-     * 内核是 200+ 个同版本锁步包，install 会整组下载并就地替换，
-     * 之后需要**重启应用**才生效。
-     */
-    core: {
-      /** 当前内核版本 / 官方发行页地址 */
-      info: () => ipcRenderer.invoke('jackdsh:core-info'),
-      /** 查官方源最新内核版本，附「当前 → 目标」之间的完整更新日志 */
-      check: () => ipcRenderer.invoke('jackdsh:core-check'),
-      /** 下载并就地替换（传入 check 返回的 latestVersion） */
-      install: (targetVersion) => ipcRenderer.invoke('jackdsh:core-install', targetVersion),
-      /** 用系统浏览器打开发行页 */
-      openReleases: () => ipcRenderer.invoke('jackdsh:core-open-releases'),
-      /** 订阅下载/替换进度，返回取消订阅函数 */
-      onProgress: (callback) => {
-        if (typeof callback !== 'function') return () => {}
-        const listener = (_event, progress) => callback(progress)
-        ipcRenderer.on('jackdsh:core-progress', listener)
-        return () => ipcRenderer.removeListener('jackdsh:core-progress', listener)
-      },
-    },
-
-    /**
-     * 左上角菜单「检查更新」点了哪一条 → 让面板打开并切到对应轨道。
+     * 左上角菜单「检查更新」→ 让面板打开。
      * 返回取消订阅函数。
      */
     onOpenPanel: (callback) => {

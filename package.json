@@ -18,6 +18,7 @@
     "release:notes": "node scripts/release-helper.mjs draft-notes",
     "release:bump": "node scripts/release-helper.mjs bump",
     "prepare-bundle": "node scripts/prepare-bundle.js",
+    "update-core": "node scripts/update-core.mjs",
     "dev": "node scripts/prepare-bundle.js && electron .",
     "test:sandbox": "node scripts/test-sandbox-run.js",
     "build:mac": "node scripts/prepare-bundle.js && node scripts/build.js --mac",

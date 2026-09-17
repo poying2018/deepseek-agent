@@ -1,9 +1,9 @@
 /**
  * dsh-update-check —— 侧栏左下角的「检查更新」。
  *
- * 两条独立轨道：
- *   · 应用本体 —— 源是本项目 GitHub Release，可应用内下载并拉起安装程序
- *   · 核心     —— 源是 npm 官方源的 @deepseek-ai/dsh，整组替换后就地生效，需重启
+ * 单一轨道：应用本体 —— 源是本项目 GitHub Release，可应用内下载并拉起安装程序。
+ * 内核（@deepseek-ai/dsh）随安装包整体发布，没有独立的运行期更新轨道；
+ * 构建前用 `pnpm update-core` 把内核依赖升到最新即可。
  *
  * 全部实际动作（网络、落盘、启动安装器）都在主进程；这里只负责画界面。
  * 桌面客户端才有 window.jackdshNative，用手机局域网遥控打开时必须降级。
@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     }
     function bridge() {
       const n = native()
-      return n && n.update && n.core ? n : null
+      return n && n.update ? n : null
     }
 
     const css = [
@@ -43,12 +43,6 @@ window.__ModuleLoader__.load({
       '.duc-mask{position:absolute;inset:0;background:var(--dsw-alias-bg-mask-1);backdrop-filter:var(--dsw-mask-blur)}',
       '.duc-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:12px;width:min(500px,calc(100vw - 32px));max-height:min(680px,calc(100vh - 64px));box-sizing:border-box;padding:22px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary)}',
       '.duc-kicker{margin:0;color:var(--dsw-alias-brand-primary);font-size:12px;font-weight:600;letter-spacing:.04em;line-height:18px;text-transform:uppercase}',
-      '.duc-tabs{display:flex;gap:6px;border-bottom:1px solid var(--dsw-alias-border-l2);padding-bottom:8px}',
-      '.duc-tab{appearance:none;position:relative;padding:5px 10px;border-radius:8px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}',
-      '.duc-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}',
-      '.duc-tab.active{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary);font-weight:600}',
-      '.duc-tab:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2),0 0 0 4px var(--dsw-alias-brand-primary)}',
-      '.duc-tab-dot{position:absolute;top:2px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary, #e5484d)}',
       '.duc-body{display:flex;flex-direction:column;gap:12px;overflow:auto}',
       '.duc-versions{display:flex;gap:20px;flex-wrap:wrap;margin:0}',
       '.duc-version{display:flex;flex-direction:column;gap:2px}',
@@ -100,15 +94,13 @@ window.__ModuleLoader__.load({
         trigger: '检查更新',
         kicker: '应用更新',
         title: '检查更新',
-        tabApp: '应用本体',
-        tabCore: '核心（DSH）',
         current: '当前版本',
         latest: '最新版本',
         checking: '正在检查…',
         upToDate: '已是最新版本。',
         noRelease: '还没有已发布的版本，等作者发第一版后就能在这里更新。',
         available: (v) => `发现新版本 ${v}。`,
-        sourceApp: '来源：GitHub Release',
+        sourceApp: '来源：GitHub Release（内核随安装包一起更新）',
         notes: '更新说明',
         noNotes: '（这一版没有填写更新说明）',
         download: '下载更新',
@@ -121,33 +113,18 @@ window.__ModuleLoader__.load({
         close: '关闭',
         desktopOnly: '检查更新仅在桌面客户端内可用。用手机遥控打开时无法更新，请到电脑上操作。',
         failed: '检查更新失败',
-        coreSub: '内核来自 npm 官方源，与应用本体各自独立更新。',
-        coreLog: '更新日志',
-        coreNoLog: '（官方未提供这些版本的发布说明）',
-        coreInstall: '下载并安装内核',
-        coreWorking: '正在处理…',
-        coreStagePlan: '正在核对要更新的包…',
-        coreStageDownload: '正在下载内核包…',
-        coreStageApply: '正在替换文件…',
-        coreStageVerify: '正在验证内核能否启动…',
-        coreDone: (from, to) => `内核已从 ${from} 更新到 ${to}。`,
-        coreRestart: '请重启应用以应用更新。当前运行的仍是旧内核，重启后生效。',
-        coreDisabled: (list) => `以下插件未声明支持该内核，已自动停用（可逆）：${list}。`,
-        coreSource: '来源：npm 官方源 @deepseek-ai/dsh',
       },
       en: {
         trigger: 'Check for updates',
         kicker: 'App update',
         title: 'Check for updates',
-        tabApp: 'Application',
-        tabCore: 'Core (DSH)',
         current: 'Current',
         latest: 'Latest',
         checking: 'Checking…',
         upToDate: 'You are on the latest version.',
         noRelease: 'No release published yet — this will work once the first version ships.',
         available: (v) => `Version ${v} is available.`,
-        sourceApp: 'Source: GitHub Release',
+        sourceApp: 'Source: GitHub Release (the bundled kernel updates with it)',
         notes: 'Release notes',
         noNotes: '(No release notes for this version)',
         download: 'Download update',
@@ -160,19 +137,6 @@ window.__ModuleLoader__.load({
         close: 'Close',
         desktopOnly: 'Updates are only available in the desktop app, not over the mobile remote.',
         failed: 'Update check failed',
-        coreSub: 'The core comes from the official npm registry and updates independently.',
-        coreLog: 'Changelog',
-        coreNoLog: '(No release notes published for these versions)',
-        coreInstall: 'Download and install core',
-        coreWorking: 'Working…',
-        coreStagePlan: 'Resolving packages…',
-        coreStageDownload: 'Downloading core packages…',
-        coreStageApply: 'Replacing files…',
-        coreStageVerify: 'Verifying the kernel boots…',
-        coreDone: (from, to) => `Core updated from ${from} to ${to}.`,
-        coreRestart: 'Restart the app to apply the update. The running kernel is still the old one.',
-        coreDisabled: (list) => `These plugins do not declare support for this kernel and were disabled: ${list}.`,
-        coreSource: 'Source: official npm registry @deepseek-ai/dsh',
       },
     }
 
@@ -185,14 +149,6 @@ window.__ModuleLoader__.load({
       if (!Number.isFinite(n) || n <= 0) return ''
       const mb = n / 1024 / 1024
       return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`
-    }
-
-    function formatDate(iso) {
-      if (!iso) return ''
-      const d = new Date(iso)
-      if (Number.isNaN(d.getTime())) return ''
-      const p = (n) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
     }
 
     function IconUpdate({ size = 18 }) {
@@ -352,157 +308,19 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ---------------------------------------------------------------- 核心
-
-    function CoreTab({ t, api, onAvailability }) {
-      const [phase, setPhase] = React.useState('idle')
-      const [info, setInfo] = React.useState(null)
-      const [result, setResult] = React.useState(null)
-      const [progress, setProgress] = React.useState(null)
-      const [error, setError] = React.useState('')
-      const [done, setDone] = React.useState(null)
-
-      React.useEffect(() => {
-        if (!api) return undefined
-        return api.core.onProgress((p) => setProgress(p))
-      }, [api])
-
-      React.useEffect(() => {
-        if (!api) return undefined
-        let alive = true
-        api.core.info().then((v) => { if (alive && v && v.ok) setInfo(v) }).catch(() => {})
-        return () => { alive = false }
-      }, [api])
-
-      const runCheck = React.useCallback(async () => {
-        if (!api) return
-        setPhase('checking'); setError(''); setDone(null)
-        try {
-          const v = await api.core.check()
-          if (!v || v.ok !== true) {
-            setPhase('error'); setError((v && v.error) || t.failed); onAvailability(false); return
-          }
-          setResult(v)
-          if (v.status === 'available') { setPhase('available'); onAvailability(true) }
-          else { setPhase('latest'); onAvailability(false) }
-        } catch (err) {
-          setPhase('error'); setError(err instanceof Error ? err.message : t.failed); onAvailability(false)
-        }
-      }, [api, t, onAvailability])
-
-      React.useEffect(() => { if (phase === 'idle' && api) void runCheck() }, [phase, api, runCheck])
-
-      const runInstall = React.useCallback(async () => {
-        if (!api || !result || !result.latestVersion) return
-        setPhase('working'); setError(''); setProgress({ stage: 'plan', percent: 0 })
-        try {
-          const v = await api.core.install(result.latestVersion)
-          if (!v || v.ok !== true) { setPhase('available'); setError((v && v.error) || '核心更新失败。'); return }
-          setDone(v); setPhase('done'); onAvailability(false)
-        } catch (err) {
-          setPhase('available'); setError(err instanceof Error ? err.message : '核心更新失败。')
-        }
-      }, [api, result, onAvailability])
-
-      const stageText = progress && progress.stage === 'download' ? t.coreStageDownload
-        : progress && progress.stage === 'verify' ? t.coreStageVerify
-          : progress && progress.stage === 'apply' ? t.coreStageApply
-            : t.coreStagePlan
-
-      const log = (result && Array.isArray(result.changelog)) ? result.changelog : []
-
-      return h('div', { className: 'duc-body' },
-        h('p', { className: 'duc-state is-latest' }, t.coreSource),
-        h('p', { className: 'duc-state is-latest' }, t.coreSub),
-        h(Versions, {
-          t,
-          current: (info && info.currentVersion) || (result && result.currentVersion),
-          latest: result && result.latestVersion,
-        }),
-
-        phase === 'checking' ? h('p', { className: 'duc-state is-latest' }, t.checking) : null,
-        phase === 'latest' ? h('p', { className: 'duc-state is-latest' }, t.upToDate) : null,
-        (phase === 'available' || phase === 'working')
-          ? h('p', { className: 'duc-state is-available' }, t.available((result && result.latestVersion) || ''))
-          : null,
-
-        // 详细更新日志：逐版本列出发布时间与官方发布正文
-        log.length > 0
-          ? h('div', null,
-            h('p', { className: 'duc-label' }, `${t.coreLog}（${log.length}）`),
-            h('div', { className: 'duc-log' },
-              log.map((item) => h('div', { className: 'duc-log-item', key: item.version },
-                h('div', { className: 'duc-log-head' },
-                  h('span', { className: 'duc-log-ver' }, item.version),
-                  item.date ? h('span', { className: 'duc-log-date' }, formatDate(item.date)) : null,
-                ),
-                h('pre', { className: 'duc-log-body' }, item.notes || t.coreNoLog),
-              )),
-            ),
-          )
-          : null,
-
-        phase === 'working'
-          ? h('div', null,
-            h('p', { className: 'duc-state is-latest' }, stageText),
-            h(Progress, { percent: (progress && progress.percent) || 0 }),
-          )
-          : null,
-
-        done
-          ? h('div', null,
-            h('p', { className: 'duc-state is-available' }, t.coreDone(done.from, done.to)),
-            h('p', { className: 'duc-restart', role: 'status' }, t.coreRestart),
-            (done.disabledPlugins && done.disabledPlugins.length)
-              ? h('p', { className: 'duc-state is-latest' }, t.coreDisabled(done.disabledPlugins.map((d) => d.name).join('、')))
-              : null,
-          )
-          : null,
-
-        error ? h('p', { className: 'duc-error', role: 'alert' }, error) : null,
-
-        h('div', { className: 'duc-actions' },
-          h('button', {
-            type: 'button', className: 'duc-link',
-            onClick: () => { if (api) void api.core.openReleases() },
-          }, t.openReleases),
-
-          phase === 'working'
-            ? h('button', { type: 'button', className: 'duc-action', disabled: true }, t.coreWorking)
-            : null,
-
-          phase === 'available'
-            ? h('button', {
-              type: 'button', className: 'duc-action duc-action-primary',
-              onClick: () => { void runInstall() },
-            }, t.coreInstall)
-            : null,
-
-          (phase === 'latest' || phase === 'error' || phase === 'done')
-            ? h('button', { type: 'button', className: 'duc-action', onClick: () => { void runCheck() } }, t.recheck)
-            : null,
-        ),
-      )
-    }
-
     // ---------------------------------------------------------------- 入口
 
     function UpdateButton({ wide }) {
       const t = locale()
       const api = React.useMemo(() => bridge(), [])
       const [open, setOpen] = React.useState(false)
-      const [tab, setTab] = React.useState('app')
       const [appNew, setAppNew] = React.useState(false)
-      const [coreNew, setCoreNew] = React.useState(false)
 
-      // 左上角菜单「检查更新」→ 打开面板并切到对应轨道
+      // 左上角菜单「检查更新」→ 打开面板
       React.useEffect(() => {
         const n = native()
         if (!n || typeof n.onOpenPanel !== 'function') return undefined
-        return n.onOpenPanel((next) => {
-          setTab(next === 'core' ? 'core' : 'app')
-          setOpen(true)
-        })
+        return n.onOpenPanel(() => setOpen(true))
       }, [])
 
       React.useEffect(() => {
@@ -512,30 +330,14 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey)
       }, [open])
 
-      const hasDot = appNew || coreNew
-
-      function tabButton(id, label, dot) {
-        return h('button', {
-          type: 'button',
-          className: 'duc-tab' + (tab === id ? ' active' : ''),
-          onClick: () => setTab(id),
-        }, label, dot ? h('span', { className: 'duc-tab-dot' }) : null)
-      }
-
       const dialog = open
         ? ReactDOM.createPortal(
           h('div', { className: 'duc-overlay', role: 'presentation' },
             h('div', { className: 'duc-mask', onClick: () => setOpen(false) }),
             h('div', { className: 'duc-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title },
               h('p', { className: 'duc-kicker' }, t.kicker),
-              h('div', { className: 'duc-tabs' },
-                tabButton('app', t.tabApp, appNew),
-                tabButton('core', t.tabCore, coreNew),
-              ),
               api
-                ? (tab === 'core'
-                  ? h(CoreTab, { t, api, onAvailability: setCoreNew })
-                  : h(AppTab, { t, api, onAvailability: setAppNew }))
+                ? h(AppTab, { t, api, onAvailability: setAppNew })
                 : h('div', { className: 'duc-body' }, h('p', { className: 'duc-state is-latest' }, t.desktopOnly)),
               h('div', { className: 'duc-actions' },
                 h('button', { type: 'button', className: 'duc-action duc-right', onClick: () => setOpen(false) }, t.close),
@@ -558,7 +360,7 @@ window.__ModuleLoader__.load({
           onClick: () => setOpen(true),
         },
           h(IconUpdate, { size: 18 }),
-          hasDot ? h('span', { className: 'duc-dot' }) : null,
+          appNew ? h('span', { className: 'duc-dot' }) : null,
         ),
         dialog,
       )
