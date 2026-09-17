@@ -20,6 +20,7 @@ import {
   downloadCoreUpdate,
   installedCoreVersion,
   planCoreUpdate,
+  repairPendingCoreRestore,
   verifyCoreBoots,
 } from './core-updater.js'
 
@@ -672,6 +673,25 @@ app.whenReady().then(async () => {
   // 抢锁失败的实例到此为止：不许建窗口、更不许启动内核。
   // 这条闸不能省 —— 实测过「抢锁失败但 whenReady 仍然跑完」的情形。
   if (!gotTheLock) return
+
+  // ── ⓪ 冷启动补还原（必须在内核拉起之前）─────────────────────────────────
+  // 上一轮内核更新回滚时若有包因 EPERM 没能还原回去，清单会记在
+  // .dsh-core-backup/.dsh-core-repair.json。现在内核还没启动、绝无进程占用
+  // node_modules，是补还原的最佳时机。失败也不拦启动——内核真起不来还有
+  // 后面的启动失败页兜底，报错里会带上具体包名。
+  try {
+    const repair = await repairPendingCoreRestore()
+    if (repair && (repair.repaired.length > 0 || repair.stillBroken.length > 0)) {
+      if (repair.repaired.length > 0) {
+        console.log('[DeepSeek Agent] 已自动补还原上次更新未落地的内核包:', repair.repaired.join(', '))
+      }
+      if (repair.stillBroken.length > 0) {
+        console.error('[DeepSeek Agent] 以下内核包自动补还原仍失败:', repair.stillBroken.join(', '))
+      }
+    }
+  } catch (error) {
+    console.warn('[DeepSeek Agent] 冷启动补还原出错（不拦截启动）:', error?.message || error)
+  }
 
   try {
     app.setAboutPanelOptions({

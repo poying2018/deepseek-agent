@@ -557,6 +557,69 @@ function backupRoot(oldVersion) {
   return join(appNodeModulesDir(), '..', '.dsh-core-backup', oldVersion)
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 待修复清单：回滚还原失败时落盘，下次冷启动由 repairPendingCoreRestore 自动补还原。 */
+function pendingRepairFile() {
+  return join(appNodeModulesDir(), '..', '.dsh-core-backup', '.dsh-core-repair.json')
+}
+
+function readPendingRepairs() {
+  try {
+    const list = JSON.parse(readFileSync(pendingRepairFile(), 'utf8'))
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 冷启动补还原：上一轮内核更新回滚时若有包因 EPERM 没能还原回去
+ * （内核进程刚被杀、句柄还没释放 / 杀软正扫新写盘的 node_modules），
+ * 把它们记录在待修复清单里。应用下次启动、**内核尚未拉起**时调用本函数——
+ * 冷启动时绝无进程占用 node_modules，是补还原的最佳时机。
+ *
+ * 成功还原的包从清单剔除；全部处理完（或仍失败的备份已丢失）就删清单。
+ *
+ * @returns {Promise<null | {repaired: string[], stillBroken: string[]}>} 无清单时返回 null
+ */
+export async function repairPendingCoreRestore() {
+  const file = pendingRepairFile()
+  if (!existsSync(file)) return null
+  const list = readPendingRepairs()
+  const repaired = []
+  const stillBroken = []
+  const remaining = []
+  for (const item of list) {
+    if (!item || typeof item.backup !== 'string' || typeof item.live !== 'string') continue
+    if (!existsSync(item.backup)) {
+      // 备份都没了，无从修复；也不再留在清单里
+      stillBroken.push(item.short || item.backup)
+      continue
+    }
+    let ok = false
+    for (let attempt = 1; attempt <= 5 && !ok; attempt++) {
+      try {
+        try { rmSync(item.live, { recursive: true, force: true }) } catch {}
+        movePath(item.backup, item.live)
+        ok = true
+      } catch {
+        if (attempt < 5) await sleep(400 * attempt)
+      }
+    }
+    if (ok) repaired.push(item.short)
+    else {
+      stillBroken.push(item.short)
+      remaining.push(item)
+    }
+  }
+  try {
+    if (remaining.length === 0) rmSync(file, { force: true })
+    else writeFileSync(file, JSON.stringify(remaining, null, 2))
+  } catch {}
+  return { repaired, stillBroken }
+}
+
 // ---------------------------------------------------------------- 插件兼容性调整
 
 function pluginsRootDir() {
@@ -849,23 +912,49 @@ export async function applyCoreUpdate(plan, stagedDir, options = {}) {
     for (const item of pluginUndo.reverse()) {
       try { if (existsSync(item.to) && !existsSync(item.from)) renameSync(item.to, item.from) } catch {}
     }
-    const failed = []
+    // ⚠️ 冒烟验证刚 kill 的内核进程，Windows 上句柄释放有延迟，杀软还可能对
+    // 新写盘的 node_modules 再扫一轮 —— 不等就抢着还原必吃 EPERM
+    // （实测踩过：dsh-agent-presets 还原失败，内核从此缺包起不来）。
+    await sleep(1500)
+    const failedItems = []
     for (const item of touched.reverse()) {
       try { rmSync(item.live, { recursive: true, force: true }) } catch {}
       if (item.backup) {
-        try { movePath(item.backup, item.live) } catch (restoreError) {
-          failed.push(`${item.short}(${restoreError && restoreError.code ? restoreError.code : '未知'})`)
+        // EPERM/EBUSY 绝大多数是瞬态的（句柄延迟释放 / 杀软扫描），
+        // 退避重试能当场消化掉；重试到底仍失败才进待修复清单。
+        let restored = false
+        for (let attempt = 1; attempt <= 5 && !restored; attempt++) {
+          try {
+            movePath(item.backup, item.live)
+            restored = true
+          } catch (restoreError) {
+            if (attempt < 5) await sleep(600 * attempt)
+            else failedItems.push({
+              short: item.short,
+              live: item.live,
+              backup: item.backup,
+              code: (restoreError && restoreError.code) || '未知',
+            })
+          }
         }
       }
     }
     const reason = error instanceof Error ? error.message : String(error)
-    if (failed.length > 0) {
-      // 回滚也没成功：必须让用户知道哪些包只剩备份，别静默装作没事
+    if (failedItems.length > 0) {
+      // 当场还原不成功：落「待修复清单」，下次冷启动 repairPendingCoreRestore
+      // 会自动补还原，用户不需要手动搬目录。备份目录必须保留——那是唯一能
+      // 救回旧内核的副本，修复完成前绝不能清。
+      const previous = readPendingRepairs()
+      const merged = [
+        ...previous.filter((p) => !failedItems.some((f) => f.short === p.short)),
+        ...failedItems,
+      ]
+      try { writeFileSync(pendingRepairFile(), JSON.stringify(merged, null, 2)) } catch {}
       const where = backupRoot(plan.currentVersion || 'backup')
       return {
         ok: false,
-        error: `${reason}；且以下包还原失败，请手动从 ${where} 把同名目录移回 node_modules/@deepseek-ai/：${failed.join(', ')}`,
-        stuck: failed,
+        error: `${reason}；${failedItems.length} 个包当场没能还原（${failedItems.map((f) => `${f.short}(${f.code})`).join(', ')}），已记录待修复清单——重启应用将自动补还原；若重启后仍异常，请手动从 ${where} 把同名目录移回 node_modules/@deepseek-ai/`,
+        stuck: failedItems.map((f) => f.short),
       }
     }
     return { ok: false, error: `替换失败并已回滚：${reason}` }
@@ -959,13 +1048,30 @@ export async function verifyCoreBoots(options = {}) {
   let stdout = ''
   let stderr = ''
 
+  // ⚠️ 必须杀**整棵进程树**，不能只用 child.kill()：内核自己还会 spawn 子进程，
+  // 只杀父进程的话子进程继续活着并握着 node_modules 的句柄，随后的回滚
+  // 还原就会 EPERM（实测踩过）。Windows 上用 taskkill /T /F；其他平台 SIGKILL。
+  const killTree = () => {
+    if (!child) return
+    if (process.platform === 'win32' && child.pid) {
+      try {
+        spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+      } catch {}
+    }
+    try { child.kill('SIGKILL') } catch {}
+    try { child.kill() } catch {}
+  }
+
   return new Promise((resolve) => {
     let settled = false
     const finish = (result) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      try { child.kill() } catch {}
+      killTree()
       resolve(result)
     }
     const timer = setTimeout(() => {

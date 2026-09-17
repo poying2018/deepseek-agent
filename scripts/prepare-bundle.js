@@ -256,6 +256,24 @@ function ensureRepoBuilt(dir, entry, origin) {
   const installArgs = usePnpm
     ? 'install --ignore-scripts --config.confirmModulesPurge=false'
     : 'install --ignore-scripts --no-audit --no-fund'
+
+  // ⚠️ 插件作者本机的 .npmrc 可能把 script-shell 钉死成本机 shell（实测
+  // dsh-codearts-auth 提交了 script-shell=C:\Windows\System32\cmd.exe）。后果：
+  //   - macOS/Linux runner：spawn cmd.exe → ENOENT → pnpm run 全部 exit -2；
+  //   - Windows runner：pnpm 拉起 cmd.exe 却不带 /c 参数 → 变成交互式 shell，
+  //     stdin 碰到 EOF 立即退出码 0 —— build「成功」但什么都没构建（更隐蔽）。
+  // 这是开发机便利配置，不属于插件运行期依赖，构建前剥掉，pnpm 回落到
+  // 各平台默认 shell（Windows 自动带 /c，POSIX 用 /bin/sh）。
+  try {
+    const rcPath = join(dir, '.npmrc')
+    if (existsSync(rcPath)) {
+      const cleaned = readFileSync(rcPath, 'utf8')
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*script-shell\s*=/.test(line))
+        .join('\n')
+      if (cleaned !== readFileSync(rcPath, 'utf8')) writeFileSync(rcPath, cleaned)
+    }
+  } catch {}
   const opts = { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }
 
   try {
