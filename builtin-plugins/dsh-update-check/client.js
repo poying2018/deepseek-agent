@@ -44,6 +44,10 @@ window.__ModuleLoader__.load({
       '.duc-panel{position:relative;z-index:1;display:flex;flex-direction:column;gap:12px;width:min(500px,calc(100vw - 32px));max-height:min(680px,calc(100vh - 64px));box-sizing:border-box;padding:22px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary)}',
       '.duc-kicker{margin:0;color:var(--dsw-alias-brand-primary);font-size:12px;font-weight:600;letter-spacing:.04em;line-height:18px;text-transform:uppercase}',
       '.duc-body{display:flex;flex-direction:column;gap:12px;overflow:auto}',
+      '.duc-detail{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}',
+      '.duc-detail-row{display:flex;gap:12px;font-size:12px;line-height:18px}',
+      '.duc-detail-key{flex:none;width:76px;color:var(--dsw-alias-label-tertiary)}',
+      '.duc-detail-val{flex:1;min-width:0;color:var(--dsw-alias-label-secondary);word-break:break-all;font-variant-numeric:tabular-nums}',
       '.duc-versions{display:flex;gap:20px;flex-wrap:wrap;margin:0}',
       '.duc-version{display:flex;flex-direction:column;gap:2px}',
       '.duc-version dt{margin:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}',
@@ -113,6 +117,16 @@ window.__ModuleLoader__.load({
         close: '关闭',
         desktopOnly: '检查更新仅在桌面客户端内可用。用手机遥控打开时无法更新，请到电脑上操作。',
         failed: '检查更新失败',
+        details: '当前应用',
+        dApp: '应用版本',
+        dCore: '内核底座',
+        dMode: '运行模式',
+        modeInstalled: '标准安装',
+        modePortable: '便携模式',
+        dPlatform: '系统平台',
+        dRuntime: '运行时',
+        dLocation: '安装位置',
+        dData: '数据目录',
       },
       en: {
         trigger: 'Check for updates',
@@ -137,6 +151,16 @@ window.__ModuleLoader__.load({
         close: 'Close',
         desktopOnly: 'Updates are only available in the desktop app, not over the mobile remote.',
         failed: 'Update check failed',
+        details: 'Current app',
+        dApp: 'App version',
+        dCore: 'Kernel',
+        dMode: 'Runtime mode',
+        modeInstalled: 'Installed',
+        modePortable: 'Portable',
+        dPlatform: 'Platform',
+        dRuntime: 'Runtime',
+        dLocation: 'Install location',
+        dData: 'Data directory',
       },
     }
 
@@ -183,6 +207,41 @@ window.__ModuleLoader__.load({
         h('p', { className: 'duc-bar-text' },
           `${percent || 0}%` + (total ? `  ·  ${formatBytes(received)} / ${formatBytes(total)}` : ''),
         ),
+      )
+    }
+
+    // ---------------------------------------------------------------- 应用详情
+
+    function prettyPlatform(p) {
+      if (!p) return '—'
+      const [os, arch] = String(p).split('-')
+      const osName = os === 'win32' ? 'Windows' : os === 'darwin' ? 'macOS' : os === 'linux' ? 'Linux' : os
+      return `${osName} ${arch || ''}`.trim()
+    }
+
+    function AppDetails({ t, info }) {
+      const d = info && info.details
+      if (!d) return null
+      const runtime = [
+        d.electron ? `Electron ${d.electron}` : '',
+        d.node ? `Node ${d.node}` : '',
+        d.chrome ? `Chromium ${d.chrome}` : '',
+      ].filter(Boolean).join(' · ')
+      const rows = [
+        [t.dApp, d.appVersion ? `v${String(d.appVersion).replace(/^v/i, '')}` : '—'],
+        [t.dCore, d.coreVersion ? `v${String(d.coreVersion).replace(/^v/i, '')}` : '—'],
+        [t.dMode, d.runtimeMode === 'portable' ? t.modePortable : t.modeInstalled],
+        [t.dPlatform, prettyPlatform(d.platform)],
+        [t.dRuntime, runtime || '—'],
+        [t.dLocation, d.exePath || '—'],
+        [t.dData, d.dataDir || '—'],
+      ]
+      return h('div', { className: 'duc-detail' },
+        h('p', { className: 'duc-label' }, t.details),
+        rows.map(([key, value]) => h('div', { className: 'duc-detail-row', key },
+          h('span', { className: 'duc-detail-key' }, key),
+          h('span', { className: 'duc-detail-val' }, value),
+        )),
       )
     }
 
@@ -275,6 +334,8 @@ window.__ModuleLoader__.load({
         phase === 'downloaded' ? h('p', { className: 'duc-state is-latest' }, t.downloadedHint) : null,
         notice ? h('p', { className: 'duc-state is-latest', role: 'status' }, notice) : null,
         phase === 'error' && error ? h('p', { className: 'duc-error', role: 'alert' }, error) : null,
+
+        h(AppDetails, { t, info }),
 
         h('div', { className: 'duc-actions' },
           h('button', {

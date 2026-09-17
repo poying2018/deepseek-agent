@@ -151,6 +151,26 @@ const updateLogger = (label, error) => {
   console.warn(`[updater] ${label}:`, error instanceof Error ? error.message : error)
 }
 
+/**
+ * 读取当前随包安装的内核（@deepseek-ai/dsh）版本。
+ * 开发态在仓库 node_modules，打包态在 <resources>/node_modules。
+ * 读不到（异常安装）返回 null，面板显示「—」即可，不阻塞更新流程。
+ */
+function readBundledCoreVersion() {
+  const candidates = [
+    join(__dirname, '../../node_modules'),
+    process.resourcesPath ? join(process.resourcesPath, 'node_modules') : '',
+  ]
+  for (const dir of candidates) {
+    if (!dir) continue
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, '@deepseek-ai/dsh', 'package.json'), 'utf8'))
+      if (pkg && pkg.version) return pkg.version
+    } catch {}
+  }
+  return null
+}
+
 ipcMain.handle('jackdsh:update-info', async () => ({
   ok: true,
   currentVersion: app.getVersion(),
@@ -158,6 +178,18 @@ ipcMain.handle('jackdsh:update-info', async () => ({
   downloaded: await listDownloaded(),
   platform: process.platform,
   arch: process.arch,
+  // 检查更新面板的「当前应用详细信息」
+  details: {
+    appVersion: app.getVersion(),
+    coreVersion: readBundledCoreVersion(),
+    runtimeMode: process.env.DSH_PORTABLE ? 'portable' : 'installed',
+    platform: `${process.platform}-${process.arch}`,
+    electron: process.versions.electron || '',
+    node: process.versions.node || '',
+    chrome: process.versions.chrome || '',
+    exePath: app.getPath('exe'),
+    dataDir: app.getPath('userData'),
+  },
 }))
 
 ipcMain.handle('jackdsh:update-check', async () => {
