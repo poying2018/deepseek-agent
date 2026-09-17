@@ -438,6 +438,19 @@ const CORE_COMPAT_PATCHES = [
     find: 'assertReleasedV0Keys(block, ["type", "text"], [], label);',
     replace: 'assertReleasedV0Keys(block, ["type", "text"], ["textSignature", "thinkingSignature", "thoughtSignature"], label);',
   },
+  {
+    id: 'session-migrator-signature-members',
+    file: 'dsh-session-format-v0-to-v1/lib/index.js',
+    appliesTo: (version) => {
+      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
+    },
+    // 通用兜底：LLM 提供方的签名成员（textSignature/thinkingSignature/thoughtSignature…）
+    // 会出现在 text/reasoning/tool-call 等各类内容块上，逐块白名单打地鼠不如
+    // 在「意外成员」检查里统一豁免 *Signature——签名是提供方不透明元数据，
+    // 放行不影响迁移的结构映射。
+    find: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key));',
+    replace: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key) && !key.endsWith("Signature"));',
+  },
 ]
 
 if (coreVersionForGating) {
