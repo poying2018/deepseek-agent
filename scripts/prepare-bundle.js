@@ -451,6 +451,19 @@ const CORE_COMPAT_PATCHES = [
     find: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key));',
     replace: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key) && !key.endsWith("Signature"));',
   },
+  {
+    id: 'pi-ai-model-context-undefined',
+    file: 'dsh-llm-pi-ai/lib/index.js',
+    appliesTo: (version) => {
+      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
+    },
+    // 上游 bug：modelInfo() 无条件返回 context:{contextWindow}，当 Trae 等
+    // 适配器的模型未提供上下文窗口时值为 undefined → rc.2 校验拒绝
+    // （adapter returned invalid context metadata）→ 该模型无法加载/切换。
+    // 修正为 contextWindow 未知时省略整个 context 字段（校验允许缺省）。
+    find: 'context: { contextWindow: resolvedModel.contextWindow },',
+    replace: '...resolvedModel.contextWindow === void 0 ? {} : { context: { contextWindow: resolvedModel.contextWindow } },',
+  },
 ]
 
 if (coreVersionForGating) {
