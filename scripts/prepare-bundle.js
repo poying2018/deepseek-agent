@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, chmodSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, readdirSync, chmodSync, unlinkSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
+import semver from 'semver'
 import { ALL_BUILTIN_PLUGINS } from '../src/main/own-plugins.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -344,6 +345,71 @@ for (const { entry, inRepo } of pluginSources) {
 }
 
 // ---- [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)
+console.log('🧩 [2.5/4] 内核兼容性门禁...')
+// 内核随包发布后没有运行期更新轨道，「不兼容插件自动停用」从旧 core-updater
+// 挪到构建时：compatibility.json 显式声明的 verifiedVersions 覆盖不到本次内核
+// 版本的插件，改名成 .disabled-<名> 让运行期失效（initIsolatedProfile 的自愈
+// 逻辑会把它们从 profile.bundles 清掉；插件作者声明支持新内核后自动恢复）。
+// 只信显式声明、核心三位版本号相同即兼容——判定口径与旧 core-updater 一致，
+// ⚠️ 不要拿 peerDependencies 范围去推断（预发布 semver 语义会误判）。
+function pluginSupportsCore(dir, targetVersion) {
+  const compatPath = join(dir, 'compatibility.json')
+  if (!existsSync(compatPath)) return { declared: false }
+  let list = []
+  try {
+    const c = JSON.parse(readFileSync(compatPath, 'utf8'))
+    list = (c && c.dsh && Array.isArray(c.dsh.verifiedVersions)) ? c.dsh.verifiedVersions : []
+  } catch {
+    return { declared: false }
+  }
+  if (list.length === 0) return { declared: false }
+  const ok = list.some((v) => {
+    if (v === targetVersion) return true
+    try {
+      if (semver.validRange(v) && semver.satisfies(targetVersion, v)) return true
+      const a = semver.parse(v)
+      const b = semver.parse(targetVersion)
+      return a && b && a.major === b.major && a.minor === b.minor && a.patch === b.patch
+    } catch { return false }
+  })
+  return { declared: true, ok, reason: `仅验证到 ${list.join(' / ')}` }
+}
+
+const coreVersionForGating = (() => {
+  try {
+    return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')).dependencies['@deepseek-ai/dsh'] || ''
+  } catch { return '' }
+})()
+
+if (coreVersionForGating) {
+  const pluginsRoot = join(runtimeDir, 'plugins')
+  let disabledCount = 0
+  for (const entry of readdirSync(pluginsRoot)) {
+    if (entry.startsWith('.disabled-')) continue
+    const children = entry.startsWith('@')
+      ? readdirSync(join(pluginsRoot, entry)).map((leaf) => ({ parent: entry, leaf }))
+      : [{ parent: '', leaf: entry }]
+    for (const { parent, leaf } of children) {
+      const dir = join(pluginsRoot, parent, leaf)
+      if (!existsSync(join(dir, 'package.json'))) continue
+      const verdict = pluginSupportsCore(dir, coreVersionForGating)
+      if (verdict.declared && !verdict.ok) {
+        const display = parent ? `${parent}/${leaf}` : leaf
+        try {
+          renameSync(dir, join(pluginsRoot, parent, `.disabled-${leaf}`))
+          disabledCount += 1
+          console.log(`  🚫 停用不兼容插件: ${display}（${verdict.reason}；内核 ${coreVersionForGating}）`)
+        } catch (error) {
+          console.warn(`  ⚠️ 停用失败（保留启用态）: ${display}: ${error.message}`)
+        }
+      }
+    }
+  }
+  console.log(`  门禁完成：内核 ${coreVersionForGating}，停用 ${disabledCount} 个显式声明不兼容的插件`)
+} else {
+  console.log('  ⏭️ 读不到内核版本声明，跳过门禁（交由运行期自愈逻辑兜底）')
+}
+
 console.log('🛠️ [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)...')
 
 function prepareBskCli(targetDir, manifestList) {

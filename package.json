@@ -1,6 +1,6 @@
 {
   "name": "jackdsh",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "DeepSeek Agent (开箱即用 DeepSeek Harness 桌面客户端，内置创作者工作台与精选插件)",
   "main": "src/main/index.js",
@@ -27,8 +27,8 @@
     "build:all": "node scripts/prepare-bundle.js && node scripts/build.js -mw"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-web-app": "0.1.2-rc.1",
+    "@deepseek-ai/dsh": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-web-app": "0.1.5-rc.1",
     "schemastery": "3.18.0",
     "semver": "^7.8.5",
     "tar": "^7.5.22"
