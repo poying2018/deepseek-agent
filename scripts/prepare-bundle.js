@@ -429,6 +429,15 @@ const CORE_COMPAT_PATCHES = [
     find: 'inject = ["credentials"]',
     replace: 'inject = ["webServer", "credentials"]',
   },
+  {
+    id: 'session-migrator-llm-signatures',
+    file: 'dsh-session-format-v0-to-v1/lib/index.js',
+    appliesTo: (version) => {
+      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
+    },
+    find: 'assertReleasedV0Keys(block, ["type", "text"], [], label);',
+    replace: 'assertReleasedV0Keys(block, ["type", "text"], ["textSignature", "thinkingSignature", "thoughtSignature"], label);',
+  },
 ]
 
 if (coreVersionForGating) {
