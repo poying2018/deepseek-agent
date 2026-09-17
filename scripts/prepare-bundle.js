@@ -451,18 +451,6 @@ const CORE_COMPAT_PATCHES = [
     find: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key));',
     replace: 'const unexpected = Object.keys(record).find((key) => !allowed.has(key) && !key.endsWith("Signature"));',
   },
-  {
-    id: 'client-modules-legacy-dsh-client',
-    file: 'dsh-client-modules/lib/index.js',
-    appliesTo: (version) => {
-      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
-    },
-    // 老结构插件（如 dsh-codearts-auth、dsh-connect-trae）没有 rc.2 要求的
-    // dsh.client.platform 声明，客户端模块图会跳过它们 → 插件 UI 永不加载。
-    // 当插件有 exports["./client"] 但缺 dsh.client 声明时，按 web 平台合成。
-    find: 'const decl = parseDshClient(packageName, dsh !== null && typeof dsh === "object" ? dsh.client : void 0);',
-    replace: 'const decl = parseDshClient(packageName, dsh !== null && typeof dsh === "object" ? dsh.client : (clientExportOf(packageName, pkg.exports) !== void 0 ? { platform: "web" } : void 0));',
-  },
 ]
 
 if (coreVersionForGating) {
