@@ -28,10 +28,20 @@ const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
 const from = pkg.dependencies['@deepseek-ai/dsh']
 pkg.dependencies['@deepseek-ai/dsh'] = latest
 pkg.dependencies['@deepseek-ai/dsh-web-app'] = latest
+// ⚠️ pnpm.overrides 里钉着整套 dsh-* 锁步包（防止 pnpm 按宽范围把其余 230 个
+// 锁步包留在旧版本 → 混版启动即崩）。升内核必须连 overrides 一起升，否则
+// 只换主包必崩（实测踩过）。
+let overridden = 0
+for (const [key, value] of Object.entries(pkg.pnpm?.overrides ?? {})) {
+  if (key.startsWith('@deepseek-ai/dsh-') && value === from) {
+    pkg.pnpm.overrides[key] = latest
+    overridden += 1
+  }
+}
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
 
-console.log(`[update-core] 内核依赖：${from} → ${latest}，开始 pnpm install 同步锁步包…`)
-execSync('pnpm install', { cwd: rootDir, stdio: 'inherit' })
+console.log(`[update-core] 内核依赖：${from} → ${latest}（overrides 同步 ${overridden} 条），开始 pnpm install…`)
+execSync('pnpm install --no-frozen-lockfile', { cwd: rootDir, stdio: 'inherit' })
 const installed = JSON.parse(readFileSync(join(rootDir, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8')).version
 console.log(`[update-core] 完成：node_modules 里的内核现在是 ${installed}。`)
 if (installed !== latest) {

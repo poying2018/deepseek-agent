@@ -1,0 +1,36 @@
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dsh-mobile-plus",
+        "dsh-gemini-oauth",
+        "dsh-grok-oauth",
+        "dsh-deepseek-balance",
+        "dsh-today",
+        "dsh-web-restart",
+        "dsh-workspace-path",
+        "dsh-robust-search",
+        "dsh-reminder",
+        "dsh-app-badge",
+        "dsh-session-navigator",
+        "dsh-plugin-dashboard",
+        "dsh-web-search-follow",
+        "dsh-better-sidebar",
+        "dsh-paste-path",
+        "dsh-autostart",
+        "dsh-browser-attach",
+        "dsh-cmdj-toggle",
+        "dsh-update-check",
+        "@mlgbnb/dsh-archive-manager",
+        "@wxg-prc-cpg/browser-skill-dsh-plugin",
+        "dsh-codearts-auth",
+        "dsh-connect-trae"
+      ]
+    }
+  }
+}

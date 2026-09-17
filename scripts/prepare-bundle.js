@@ -410,6 +410,52 @@ if (coreVersionForGating) {
   console.log('  ⏭️ 读不到内核版本声明，跳过门禁（交由运行期自愈逻辑兜底）')
 }
 
+console.log('🩹 [2.6/4] 内核兼容补丁...')
+// 内核随包发布后，旧 core-updater 里「升级时给暂存内核打上游回归补丁」的
+// 逻辑必须搬到这里——否则升上去的裸内核会踩已知上游回归：
+// 0.1.5-rc.1 起 dsh-client-connection 删了 webServer inject 却仍在 register()
+// 里使用，任何调用 ctx.connection.rpc.handle() 的插件都会让内核启动即崩
+// （loadProfileDirectory 处 cannot get property "webServer" without inject）。
+// ⚠️ 补丁打在**仓库 node_modules** 上（CI 里 pnpm install 后、electron-builder
+// 打包 extraResources 前；本地 dev 也在每次 prepare-bundle 时补齐）。
+// 找不到目标代码时不报错——上游将来修好或改了写法，都不该被这里卡住。
+const CORE_COMPAT_PATCHES = [
+  {
+    id: 'connection-inject-webServer',
+    file: 'dsh-client-connection/lib/index.js',
+    appliesTo: (version) => {
+      try { return semver.gte(version, '0.1.5-rc.1') } catch { return false }
+    },
+    find: 'inject = ["credentials"]',
+    replace: 'inject = ["webServer", "credentials"]',
+  },
+]
+
+if (coreVersionForGating) {
+  for (const patch of CORE_COMPAT_PATCHES) {
+    if (!patch.appliesTo(coreVersionForGating)) continue
+    // patch.file 相对 @deepseek-ai scope（与旧 core-updater 的暂存目录口径一致）
+    const file = join(rootDir, 'node_modules', '@deepseek-ai', patch.file)
+    if (!existsSync(file)) {
+      console.warn(`  ⚠️ 补丁 ${patch.id}：文件缺失 ${patch.file}，跳过`)
+      continue
+    }
+    const raw = readFileSync(file, 'utf8')
+    if (raw.includes(patch.replace)) {
+      console.log(`  ✅ 补丁 ${patch.id}：已是修复形态（重复执行/上游已修）`)
+      continue
+    }
+    if (!raw.includes(patch.find)) {
+      console.warn(`  ⚠️ 补丁 ${patch.id}：找不到目标代码（上游可能已改写法），交由启动验证裁决`)
+      continue
+    }
+    writeFileSync(file, raw.replace(patch.find, patch.replace))
+    console.log(`  🩹 已打补丁 ${patch.id} → ${patch.file}（内核 ${coreVersionForGating}）`)
+  }
+} else {
+  console.log('  ⏭️ 无内核版本声明，跳过兼容补丁')
+}
+
 console.log('🛠️ [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)...')
 
 function prepareBskCli(targetDir, manifestList) {
