@@ -192,12 +192,51 @@ async function checkViaApi(currentVersion) {
 }
 
 /**
+ * 从 releases.atom 的条目正文里提取更新说明。
+ *
+ * 此前误判 atom「拿不到更新说明」——其实每个 <entry> 的 <content type="html">
+ * 里就带着 Release 正文。转义 HTML → 去标签 → 压缩空行，得到纯文本说明；
+ * 解析失败返回空串（面板再走「未填写说明」的降级文案）。
+ */
+function notesFromAtomEntry(xml, version) {
+  try {
+    const entries = xml.split('<entry>').slice(1)
+    const entry = entries.find((chunk) => {
+      const tag = chunk.match(/\/releases\/tag\/([^"'\s<>]+)/)
+      if (!tag) return false
+      try {
+        return decodeURIComponent(tag[1]).replace(/^v/i, '') === version
+      } catch { return false }
+    })
+    if (!entry) return ''
+    const raw = entry.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] || ''
+    const decoded = raw
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&')
+    return decoded
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6]|tr|pre)>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '• ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/\r\n/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 兜底：走 releases.atom。
  *
  * 为什么要它：api.github.com 未认证配额只有 60 次/小时/**IP**。校园网、公司网这类
  * NAT 共享出口很容易被别的使用者耗尽（本机实测就已被限流），届时 API 直接 403。
- * atom feed 属于网站页面、没有这个限制，代价是拿不到更新说明与资产列表——
- * 正文由上层降级处理，下载地址用 `assetFromVersion` 按确定性规则拼出来。
+ * atom feed 属于网站页面、没有这个限制；资产列表拿不到，下载地址用
+ * `assetFromVersion` 按确定性规则拼出来；更新说明从条目正文提取（见上）。
  */
 async function checkViaAtom(currentVersion) {
   let xml
@@ -232,7 +271,7 @@ async function checkViaAtom(currentVersion) {
     currentVersion,
     latestVersion,
     releaseUrl: `${RELEASES_PAGE}/tag/v${latestVersion}`,
-    notes: '',
+    notes: notesFromAtomEntry(xml, latestVersion),
     publishedAt: '',
     asset: hasNewer ? assetFromVersion(latestVersion) : null,
     source: 'atom',
