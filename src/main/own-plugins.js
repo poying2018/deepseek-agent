@@ -45,6 +45,12 @@ export const COMMUNITY_PLUGINS = [
   'dsh-codex-timeline',
   '@wxg-prc-cpg/browser-skill-dsh-plugin',
   'dsh-connect-workbuddy',
+  // 同族：把本机 Trae 账号接成 DSH 的 LLM provider（作者 dingminhua，MIT）。
+  // 钉 npm 发行包 1.3.0 而非 latest(2.0.4)：2.x 要求内核 >=0.1.5-0 且 pi-ai >=0.85.1，
+  // 而本发行版是 0.1.2-rc.1 + pi-ai 0.84.4，装了会在运行期挂。
+  // 1.2.0 的 CHANGELOG 明写「适配 DSH v0.1.2-rc.1 上游重构」，1.3.0 只是在其上加
+  // 模型名内嵌积分倍率，故取 1.3.0。
+  'dsh-connect-trae',
 ]
 
 export const ALL_BUILTIN_PLUGINS = [
