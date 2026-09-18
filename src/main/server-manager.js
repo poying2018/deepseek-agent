@@ -298,25 +298,6 @@ export class ServerManager {
     if (!cleanedBundles.includes('@deepseek-ai/dsh-web-app')) {
       cleanedBundles.splice(cleanedBundles.indexOf('@deepseek-ai/dsh-base') + 1, 0, '@deepseek-ai/dsh-web-app')
     }
-    // dsh-web 是 ctx.web 的 Service 基类（WebRuntime），fetch-http 和
-    // search-deepseek 是它的两个内置实现 provider。三者均为 @deepseek-ai/
-    // 内核包（非浏览器前端），需作为核心 bundle 注册，否则 ctx.web 无
-    // 能力实现，工具（dsh-tool-web）调用搜索/抓取时会报 no provider。
-    const WEB_BUNDLES = [
-      '@deepseek-ai/dsh-web',
-      '@deepseek-ai/dsh-web-fetch-http',
-      '@deepseek-ai/dsh-web-search-deepseek',
-    ]
-    let insertAfter = cleanedBundles.indexOf('@deepseek-ai/dsh-web-app')
-    if (insertAfter === -1) insertAfter = cleanedBundles.length
-    for (const wb of WEB_BUNDLES) {
-      if (!cleanedBundles.includes(wb)) {
-        insertAfter++
-        cleanedBundles.splice(insertAfter, 0, wb)
-      } else {
-        insertAfter = cleanedBundles.indexOf(wb)
-      }
-    }
     for (const name of available) {
       if (!cleanedBundles.includes(name)) cleanedBundles.push(name)
     }
