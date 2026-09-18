@@ -19,6 +19,19 @@ import {
 // 在启动初期增强 PATH，解决 macOS/Linux GUI 应用丢失终端环境变量的通病
 augmentGlobalPath()
 
+// ── 性能优化：GPU 与渲染线程调度（必须在 app.ready 之前设置）──────────────
+// 本机为 AMD 780M 核显，调试日志确认 Chromium 已走 ANGLE/D3D11 硬件路径；
+// 下面这组开关把 GPU 用得更满，并防止后台节流导致插件/计费监控卡顿。
+//  - ignore-gpu-blocklist      ：解除对核显的 blocklist，强制走硬件而非 SwiftShader 软件渲染
+//  - enable-gpu-rasterization  ：把图层光栅化也放到 GPU，降低 CPU 占用（鲸鱼娘动画/滚动更顺）
+//  - 三条 anti-throttle        ：应用失焦/最小化/被遮挡时，渲染进程与后台定时器不被降频，
+//                                保证 Token 监控、插件轮询等后台任务持续响应
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 /**
@@ -634,7 +647,9 @@ async function createWindow() {
   })
 
   mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    console.log('[Renderer Console]', message)
+    // 只镜像 warning(1)/error(2)，过滤 28 个插件启动期的 info 级刷屏，
+    // 降低主进程 I/O 与启动期卡顿；info 级内容仍可在渲染进程内 DevTools 看到。
+    if (level >= 1) console.log('[Renderer Console]', message)
   })
 
   mainWindow.on('closed', () => {
