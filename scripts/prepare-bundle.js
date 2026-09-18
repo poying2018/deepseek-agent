@@ -312,6 +312,7 @@ console.log('🧩 [2/4] 收纳精选插件与依赖...')
 const PLUGIN_RUNTIME_PATCHES = [
   {
     plugin: 'dsh-codearts-auth',
+    desc: '登录统一走系统浏览器，不再开应用内窗口',
     // 「登录时同时弹出两个浏览器」的两处根因：
     //  ① 客户端 lib/client/jet-hub.js 用 window.open(loginUrl) 开登录页。宿主主进程的
     //     windowOpenHandler 会把 https 转给系统浏览器并拒绝应用内窗口 → window.open
@@ -332,6 +333,26 @@ const PLUGIN_RUNTIME_PATCHES = [
         file: 'lib/jet-hub-rpc.js',
         from: 'const loginResult = await codearts.login({ refName, accountId: id, pool });',
         to: 'const loginResult = await codearts.login({ refName, accountId: id, pool, openBrowser: () => { } });',
+      },
+    ],
+  },
+  {
+    plugin: 'dsh-plugin-dashboard',
+    desc: '版本号读取兼容新旧品牌命名（否则回退成 0.1.2-rc.1）',
+    // 品牌改名（jackdsh → ljanx）遗留：该插件读旧环境变量名 JACKDSH_VERSION、
+    // 并按 `parsed.name === 'jackdsh'` 认宿主的 package.json。改名后三层读取全落空，
+    // 最终回退到硬编码的 '0.1.2-rc.1'——用户看到「版本号变回了旧值」。
+    // 这里让插件同时认新旧两套命名（宿主侧也保留了旧环境变量别名做双保险）。
+    edits: [
+      {
+        file: 'dashboard.js',
+        from: 'if (process.env.JACKDSH_VERSION) return process.env.JACKDSH_VERSION',
+        to: 'if (process.env.LJANX_VERSION ?? process.env.JACKDSH_VERSION) return (process.env.LJANX_VERSION ?? process.env.JACKDSH_VERSION)',
+      },
+      {
+        file: 'dashboard.js',
+        from: "if (parsed.name === 'jackdsh' && parsed.version) return parsed.version",
+        to: "if ((parsed.name === 'ljanx' || parsed.name === 'jackdsh') && parsed.version) return parsed.version",
       },
     ],
   },
@@ -364,7 +385,7 @@ function applyPluginRuntimePatches(name, dir) {
     applied += 1
   }
   if (applied > 0) {
-    console.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（登录统一走系统浏览器，不再开应用内窗口）`)
+    console.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（${entry.desc ?? '兼容修复'}）`)
   }
 }
 

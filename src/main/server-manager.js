@@ -520,11 +520,19 @@ export class ServerManager {
       DSH_DESKTOP_ISOLATED: '1',
       NODE_ENV: 'production',
       LJANX_VERSION: appVersion,
+      // ⚠️ 旧品牌环境变量别名（jackdsh → ljanx 改名遗留）：上游插件还没跟进改名，
+      // 例如 dsh-plugin-dashboard 读 JACKDSH_VERSION、dsh-today 读
+      // JACKDSH_WORKSPACE_ROOT / JACKDSH_PORTABLE_ROOT。不保留旧名的话它们会静默
+      // 回退到错误默认值（实测 dashboard 会显示成硬编码的 0.1.2-rc.1）。
+      // 上游迁移完成后可移除这三个别名。
+      JACKDSH_VERSION: appVersion,
       ...(this.isPortable ? {
         LJANX_PORTABLE_ROOT: this.dshHome,
+        JACKDSH_PORTABLE_ROOT: this.dshHome,
         DSH_IS_PORTABLE: '1',
       } : {
         LJANX_WORKSPACE_ROOT: dirname(dirname(this.defaultWorkspace)),
+        JACKDSH_WORKSPACE_ROOT: dirname(dirname(this.defaultWorkspace)),
       }),
     }
 
