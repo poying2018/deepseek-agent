@@ -113,6 +113,12 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  # 智能识别已有安装位置：安装/升级时默认把安装目录指向已有安装，直接覆盖，
+  # 避免同一台机器装出第二份。v1.2.0 换过 appId，electron-builder 自带的
+  # 「按同 appId 的 InstallLocation 找旧安装」在跨 appId 场景必然失效，
+  # 所以在 build/installer.nsh 里扫卸载表（含旧品牌 DeepSeek Agent/LJANX/JackDSH）
+  # 兜底；用户仍可在目录页改，命令行 /D= 优先级最高。
+  include: build/installer.nsh
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: DeepSeek Agent
