@@ -464,6 +464,36 @@ const CORE_COMPAT_PATCHES = [
     find: 'context: { contextWindow: resolvedModel.contextWindow },',
     replace: '...resolvedModel.contextWindow === void 0 ? {} : { context: { contextWindow: resolvedModel.contextWindow } },',
   },
+  {
+    id: 'win32-process-create-no-window',
+    file: 'dsh-win32-process/lib/index.js',
+    appliesTo: (version) => true,
+    // Electron 主进程无控制台，创建子进程时缺 CREATE_NO_WINDOW 会导致 Windows
+    // 为每个子进程分配控制台，默认终端（Windows Terminal）会弹出可见窗口。
+    find: 'createRestrictedProcess(api, options, buildCommandLine(options.command, options.args), 0, startupInfo, processInfo)',
+    replace: 'createRestrictedProcess(api, options, buildCommandLine(options.command, options.args), 0x08000000, startupInfo, processInfo)',
+  },
+  {
+    id: 'win32-process-job-suspended-no-window',
+    file: 'dsh-win32-process/lib/index.js',
+    appliesTo: (version) => true,
+    find: 'createRestrictedProcess(api, options, commandLine, 4, startupInfo, processInfo)',
+    replace: 'createRestrictedProcess(api, options, commandLine, 4 | 0x08000000, startupInfo, processInfo)',
+  },
+  {
+    id: 'win32-process-createw-no-window',
+    file: 'dsh-win32-process/lib/index.js',
+    appliesTo: (version) => true,
+    find: 'api.createProcessW(options.applicationName, commandLine, null, null, 1, 1028, environment',
+    replace: 'api.createProcessW(options.applicationName, commandLine, null, null, 1, 1028 | 0x08000000, environment',
+  },
+  {
+    id: 'subprocess-local-windows-hide',
+    file: 'dsh-subprocess-local/lib/index.js',
+    appliesTo: (version) => true,
+    find: 'stdio: runnerStdio(spec, true, ignoredStdinFd ?? "pipe")',
+    replace: 'stdio: runnerStdio(spec, true, ignoredStdinFd ?? "pipe"),\n\t\t\twindowsHide: (internals.platform ?? process.platform) === "win32"',
+  },
 ]
 
 if (coreVersionForGating) {
