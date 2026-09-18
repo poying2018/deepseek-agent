@@ -1,4 +1,4 @@
-# The `jack` (Jack 模式) agent preset: full coding agent without blocking questions.
+# The `ljanx` (LJANX 模式) agent preset: full coding agent without blocking questions.
 #
 # Derived from the builtin `standard` preset, but removes `@deepseek-ai/dsh-tool-ask-user`.
 # When the model encounters ambiguities, design tradeoffs, or multi-option decisions,

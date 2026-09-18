@@ -6,7 +6,7 @@
  * 构建前用 `pnpm update-core` 把内核依赖升到最新即可。
  *
  * 全部实际动作（网络、落盘、启动安装器）都在主进程；这里只负责画界面。
- * 桌面客户端才有 window.jackdshNative，用手机局域网遥控打开时必须降级。
+ * 桌面客户端才有 window.ljanxNative，用手机局域网遥控打开时必须降级。
  */
 window.__ModuleLoader__.load({
   id: 'dsh-update-check',
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
     const SLOT = 'sidebar.footer.action'
 
     function native() {
-      return typeof window !== 'undefined' ? window.jackdshNative : undefined
+      return typeof window !== 'undefined' ? window.ljanxNative : undefined
     }
     function bridge() {
       const n = native()

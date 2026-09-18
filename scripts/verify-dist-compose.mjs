@@ -15,7 +15,7 @@
  * 用法（在仓库根目录跑）：
  *   node scripts/verify-dist-compose.mjs [dshHome] [runtimePath] [候选插件,...]
  * 默认 dshHome 取 <userData>/dsh-data 之类难以猜到的位置，所以更推荐显式传参：
- *   node scripts/verify-dist-compose.mjs "$HOME/.jackdsh-data" release/win-unpacked/resources/runtime
+ *   node scripts/verify-dist-compose.mjs "$HOME/.ljanx-data" release/win-unpacked/resources/runtime
  * 第 3 个参数可选，用于临时评估「把某插件补进 bundles 会不会撞 id」；
  * 不传时场景 B 会自动扫 runtime/plugins 找出孤儿插件（打进包却没注册的）。
  */
@@ -35,8 +35,8 @@ function findDshHome(explicit) {
     explicit,
     process.env.JDS_DSH_HOME,
     process.env.DSH_HOME,
-    join(homedir(), 'AppData', 'Roaming', 'JackDSH', 'dsh-data'),
-    join(homedir(), 'AppData', 'Roaming', 'jackdsh', 'dsh-data'),
+    join(homedir(), 'AppData', 'Roaming', 'LJANX', 'dsh-data'),
+    join(homedir(), 'AppData', 'Roaming', 'ljanx', 'dsh-data'),
   ].filter((v) => typeof v === 'string' && v.trim())
   for (const dir of candidates) {
     if (existsSync(join(dir, 'profiles', 'web', 'package.json'))) return dir
@@ -108,7 +108,7 @@ function compose(bundleNames, label) {
     }
     layers.push({ name, file })
   }
-  // profile 层的 JackDSH 托管补丁永远是最后一层（DSH 里 profile 补丁优先级最高）
+  // profile 层的 LJANX 托管补丁永远是最后一层（DSH 里 profile 补丁优先级最高）
   if (profilePatchPath && existsSync(profilePatchPath)) {
     layers.push({ name: '<profile>/cordis.patch.yml', file: profilePatchPath })
   }
@@ -184,7 +184,7 @@ console.log(`runtimePath：${runtimePath}`)
 if (profilePatchPath && existsSync(profilePatchPath)) {
   const st = statSync(profilePatchPath)
   const patchRaw = readFileSync(profilePatchPath, 'utf8')
-  const hasManaged = patchRaw.includes('# >>> JackDSH 托管区')
+  const hasManaged = patchRaw.includes('# >>> LJANX 托管区')
   const stamp = `${st.mtime.getFullYear()}-${String(st.mtime.getMonth() + 1).padStart(2, '0')}-${String(st.mtime.getDate()).padStart(2, '0')} ${String(st.mtime.getHours()).padStart(2, '0')}:${String(st.mtime.getMinutes()).padStart(2, '0')}`
   console.log(`profile 补丁：${profilePatchPath}`)
   console.log(`  最后修改 ${stamp}｜${st.size} 字节｜托管区标记 ${hasManaged ? '有' : '无 ★'}`)

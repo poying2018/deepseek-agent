@@ -2,26 +2,26 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 // 暴露只读 native 窗口能力（备用）+ 应用内更新能力
 try {
-  contextBridge.exposeInMainWorld('jackdshNative', {
-    toggleMaximize: () => ipcRenderer.send('jackdsh:window-toggle-maximize'),
+  const bridge = {
+    toggleMaximize: () => ipcRenderer.send('ljanx:window-toggle-maximize'),
 
     /**
      * 应用内更新。全部走主进程（渲染层不碰网络与文件系统）。
      *
      * 注意：只有**桌面客户端**里的页面才有这个对象。用手机通过局域网遥控
-     * 打开同一页面时 window.jackdshNative 不存在 —— 客户端插件必须自行降级。
+     * 打开同一页面时 window.ljanxNative 不存在 —— 客户端插件必须自行降级。
      */
     update: {
       /** 当前版本 / 发布页地址 / 已下载的安装包 / 平台信息 */
-      info: () => ipcRenderer.invoke('jackdsh:update-info'),
+      info: () => ipcRenderer.invoke('ljanx:update-info'),
       /** 查询 GitHub 最新 Release 并与本机版本比对 */
-      check: () => ipcRenderer.invoke('jackdsh:update-check'),
+      check: () => ipcRenderer.invoke('ljanx:update-check'),
       /** 下载指定资产（asset 来自 check 的返回） */
-      download: (asset) => ipcRenderer.invoke('jackdsh:update-download', asset),
+      download: (asset) => ipcRenderer.invoke('ljanx:update-download', asset),
       /** 启动已下载的安装程序 */
-      install: (filePath) => ipcRenderer.invoke('jackdsh:update-install', filePath),
+      install: (filePath) => ipcRenderer.invoke('ljanx:update-install', filePath),
       /** 用系统浏览器打开发布页 */
-      openReleases: () => ipcRenderer.invoke('jackdsh:update-open-releases'),
+      openReleases: () => ipcRenderer.invoke('ljanx:update-open-releases'),
       /**
        * 订阅下载进度。
        * @returns 取消订阅函数（组件卸载时必须调用，否则监听器会堆积）
@@ -29,8 +29,8 @@ try {
       onProgress: (callback) => {
         if (typeof callback !== 'function') return () => {}
         const listener = (_event, progress) => callback(progress)
-        ipcRenderer.on('jackdsh:update-progress', listener)
-        return () => ipcRenderer.removeListener('jackdsh:update-progress', listener)
+        ipcRenderer.on('ljanx:update-progress', listener)
+        return () => ipcRenderer.removeListener('ljanx:update-progress', listener)
       },
     },
 
@@ -41,10 +41,17 @@ try {
     onOpenPanel: (callback) => {
       if (typeof callback !== 'function') return () => {}
       const listener = (_event, tab) => callback(tab)
-      ipcRenderer.on('jackdsh:update-open-panel', listener)
-      return () => ipcRenderer.removeListener('jackdsh:update-open-panel', listener)
+      ipcRenderer.on('ljanx:update-open-panel', listener)
+      return () => ipcRenderer.removeListener('ljanx:update-open-panel', listener)
     },
-  })
+  }
+
+  contextBridge.exposeInMainWorld('ljanxNative', bridge)
+  // 旧名兼容：上游社区插件（dsh-app-badge / dsh-mobile-plus / dsh-plugin-dashboard
+  // 等 JackAIStudio 仓库）用 `window.jackdshNative` 探测「是否在桌面客户端里」，
+  // 并据此切换行为。改名后保留同名桥，避免这些插件退化成「非桌面」分支。
+  // TODO: 待上游插件改用 window.ljanxNative 后可移除。
+  contextBridge.exposeInMainWorld('jackdshNative', bridge)
 } catch {}
 
 // 智能监听窗口顶部双击事件：彻底保障「双击变大变小」100% 随时随地生效
@@ -66,7 +73,7 @@ window.addEventListener('DOMContentLoaded', () => {
       // 当前会话标题（crumbCurrent 或 disabled 的展示标题）属于标题栏核心，允许双击缩放
       const isCurrentTitle = target.closest('[class*="crumbCurrent"], button[class*="crumb"][disabled]')
       if (isCurrentTitle) {
-        ipcRenderer.send('jackdsh:window-toggle-maximize')
+        ipcRenderer.send('ljanx:window-toggle-maximize')
         return
       }
 
@@ -77,7 +84,7 @@ window.addEventListener('DOMContentLoaded', () => {
       if (isInteractive) return
 
       // 在顶栏任意空白处、文字间隙双击，安全触发窗口缩放
-      ipcRenderer.send('jackdsh:window-toggle-maximize')
+      ipcRenderer.send('ljanx:window-toggle-maximize')
     },
     { capture: true }
   )

@@ -79,7 +79,7 @@ export function isStableVersion(input) {
  * ⚠️ 两道校验缺一不可，**绝不能退化成「只按扩展名匹配」**：
  *   1. 产品前缀 `deepseek-agent-`——否则别的产品遗留的同扩展名资产会被当成自己的更新包。
  *      本仓库历史上真的踩过：更新逻辑只比对扩展名，于是旧产品发布的
- *      `JackDSH-9.14.23-Mac-arm64.dmg` 被当作新版本推给了用户。
+ *      `LJANX-9.14.23-Mac-arm64.dmg` 被当作新版本推给了用户。
  *   2. 平台/架构后缀——否则 x64 机器会去下 arm64 的包。
  */
 const PRODUCT_PREFIX = 'deepseek-agent-'
@@ -249,7 +249,7 @@ async function checkViaAtom(currentVersion) {
   }
 
   // 从 `<link ... /releases/tag/<tag>/>` 取标签，**不要**去解析 <title>：
-  // 真实 Release 标题常带前后缀（如「JackDSH v9.12.16 — 极简双版本开箱安装包」），
+  // 真实 Release 标题常带前后缀（如「LJANX v9.12.16 — 极简双版本开箱安装包」），
   // 按整条标题匹配 semver 会大量漏掉，于是误判成「已是最新」。
   const versions = [...xml.matchAll(/\/releases\/tag\/([^"'\s<>]+)/g)]
     .map((match) => decodeURIComponent(match[1]).replace(/^v/i, ''))

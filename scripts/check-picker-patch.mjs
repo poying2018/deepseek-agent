@@ -90,7 +90,7 @@ const generated = withPkgs.text
 console.log('\n[1/2] 结构级检查（profile 补丁内容）')
 console.log(generated.split('\n').map((line) => `       | ${line}`).join('\n'))
 
-if (process.platform === 'win32' || process.env.JACKDSH_FORCE_BROWSE_PICKER === '1') {
+if (process.platform === 'win32' || process.env.LJANX_FORCE_BROWSE_PICKER === '1') {
   check(withPkgs.probed === true, '探测器能在依赖树里找到浏览选择器的两面（真实探测，未打桩）')
   check(/^-\s+id:\s*directory-picker\s*\n\s+disabled:\s*true\s*$/m.test(generated), 'auto 行被停用')
   check(generated.includes(BROWSE.backend), `host 能力行已写入（${BROWSE.backend}）`)

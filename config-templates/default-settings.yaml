@@ -1,4 +1,4 @@
-# Jack DSH Studio 默认初始化配置
+# LJANX 默认初始化配置
 # 首次运行自动生成，无任何个人私密凭据、无机器专属地址（代理/公网域名等）
 schema: dsh-settings/v1
 
@@ -7,8 +7,7 @@ ui-onboarding:
 
 # 默认启用高效自主编码 Agent 预设
 agent-presets:
-  default: jack
-
+  default: ljanx
 # 默认完全权限，避免编码流程中频繁弹窗阻塞
 permission:
   defaultPreset: danger-full-access

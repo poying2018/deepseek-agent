@@ -15,9 +15,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PICKER_BROWSE_BACKEND = '@deepseek-ai/dsh-host-directory-picker-browse'
 const PICKER_BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
-/** JackDSH 托管补丁区的起止标记：每次启动按平台/环境重写，能把历史上写坏的内容自动纠正。 */
-const MANAGED_BEGIN = '# >>> JackDSH 托管区：启动时自动重写，请勿手工编辑 >>>'
-const MANAGED_END = '# <<< JackDSH 托管区 <<<'
+/** LJANX 托管补丁区的起止标记：每次启动按平台/环境重写，能把历史上写坏的内容自动纠正。 */
+const MANAGED_BEGIN = '# >>> LJANX 托管区：启动时自动重写，请勿手工编辑 >>>'
+const MANAGED_END = '# <<< LJANX 托管区 <<<'
+// 品牌改名（JackDSH → LJANX）后标记随之变化。存量 profile 的 cordis.patch.yml
+// 里还是旧标记，若不先升级标记，spliceManagedRegion 找不到新区 → 会**追加**
+// 第二个托管区，新旧补丁并存（同一 id 被禁两次/插两次）。升级时只换标记行，
+// 区内容随后按当前代码整段重写。
+const MANAGED_BEGIN_LEGACY = '# >>> JackDSH 托管区：启动时自动重写，请勿手工编辑 >>>'
+const MANAGED_END_LEGACY = '# <<< JackDSH 托管区 <<<'
 
 /** 本发行版自己管过的补丁行 id：重写托管区前，先摘掉没有标记的历史版本。 */
 const MANAGED_ROW_IDS = ['directory-picker', 'client-hmr', 'dsh-mobile-plus']
@@ -97,8 +103,8 @@ export class ServerManager {
 
   /**
    * 自动解析并创建当日工作区：
-   * 便携模式：<dshHome>/JackDSH/days/YYYY-MM-DD
-   * 常规模式：~/Documents/JackDSH/days/YYYY-MM-DD（若无 Documents 则兜底 ~/JackDSH）
+   * 便携模式：<dshHome>/LJANX/days/YYYY-MM-DD
+   * 常规模式：~/Documents/LJANX/days/YYYY-MM-DD（若无 Documents 则兜底 ~/LJANX）
    * 使得无论是网吧便携还是个人 Mac，冷启动打开直接进入当天的专属工作区。
    */
   resolveInitialWorkspace() {
@@ -109,7 +115,7 @@ export class ServerManager {
     const today = `${y}-${m}-${d}`
 
     if (this.isPortable) {
-      const portableDays = join(this.dshHome, 'JackDSH', 'days', today)
+      const portableDays = join(this.dshHome, 'LJANX', 'days', today)
       try {
         mkdirSync(portableDays, { recursive: true })
         return portableDays
@@ -120,7 +126,7 @@ export class ServerManager {
 
     const docDir = join(homedir(), 'Documents')
     if (existsSync(docDir)) {
-      const todayDir = join(docDir, 'JackDSH', 'days', today)
+      const todayDir = join(docDir, 'LJANX', 'days', today)
       try {
         mkdirSync(todayDir, { recursive: true })
         return todayDir
@@ -129,7 +135,7 @@ export class ServerManager {
       }
     }
 
-    const fallbackDir = join(homedir(), 'JackDSH', 'days', today)
+    const fallbackDir = join(homedir(), 'LJANX', 'days', today)
     try {
       mkdirSync(fallbackDir, { recursive: true })
       return fallbackDir
@@ -155,13 +161,31 @@ export class ServerManager {
     }
     this.migrateSettingsDefaults(settingsFile)
 
-    // 确保出厂内置的「Jack 模式」预设存在于隔离环境
-    const jackPresetDir = join(this.dshHome, '.agent-presets', 'jack')
-    mkdirSync(jackPresetDir, { recursive: true })
-    const templatePresetDir = join(__dirname, '../../config-templates/presets/jack')
+    // 确保出厂内置的「LJANX 模式」预设存在于隔离环境
+    const presetDir = join(this.dshHome, '.agent-presets', 'ljanx')
+    mkdirSync(presetDir, { recursive: true })
+    // 品牌改名迁移：旧版把出厂预设放在 .agent-presets/jack（id 也是 jack），
+    // 若新目录还没有内容、旧目录存在，就把用户那份（可能已被他改过）搬过来，
+    // 保住自定义内容不被出厂模板覆盖。
+    const legacyPresetDir = join(this.dshHome, '.agent-presets', 'jack')
+    if (existsSync(legacyPresetDir) && !existsSync(join(presetDir, 'agent.cordis.yml'))) {
+      for (const file of ['preset.yml', 'agent.cordis.yml']) {
+        const from = join(legacyPresetDir, file)
+        const to = join(presetDir, file)
+        if (existsSync(from) && !existsSync(to)) {
+          try {
+            copyFileSync(from, to)
+          } catch (err) {
+            console.warn(`[ServerManager] failed to migrate preset file ${file}: ${err.message}`)
+          }
+        }
+      }
+      console.log('[ServerManager] 已从 .agent-presets/jack 迁移预设到 .agent-presets/ljanx')
+    }
+    const templatePresetDir = join(__dirname, '../../config-templates/presets/ljanx')
     if (existsSync(templatePresetDir)) {
       for (const file of ['preset.yml', 'agent.cordis.yml']) {
-        const dest = join(jackPresetDir, file)
+        const dest = join(presetDir, file)
         const src = join(templatePresetDir, file)
         if (!existsSync(dest) && existsSync(src)) {
           try {
@@ -202,14 +226,19 @@ export class ServerManager {
       let changed = false
 
       if (!raw.includes('agent-presets:')) {
-        raw += '\n# 默认启用高效自主编码 Agent 预设\nagent-presets:\n  default: jack\n'
+        raw += '\n# 默认启用高效自主编码 Agent 预设\nagent-presets:\n  default: ljanx\n'
+        changed = true
+      } else if (/^\s*default:\s*jack\s*$/m.test(raw)) {
+        // 品牌改名：旧版把出厂预设 id 写成 `jack`，预设目录已迁到 ljanx，
+        // 这里把默认预设指向新 id，否则内核会找不到预设而回退到无预设模式。
+        raw = raw.replace(/^(\s*default:\s*)jack\s*$/m, '$1ljanx')
         changed = true
       }
 
       if (!raw.includes('llm-grok:')) {
         const block = [
           '',
-          '# Jack DSH Studio 内置插件默认配置（首次升级自动补充）',
+          '# LJANX 内置插件默认配置（首次升级自动补充）',
           'llm-grok:',
           '  enableImageGen: true',
           '  models:',
@@ -318,7 +347,7 @@ export class ServerManager {
   }
 
   /**
-   * 确保 cordis.patch.yml 处于健康状态（按当前平台/环境重写 JackDSH 托管区）。
+   * 确保 cordis.patch.yml 处于健康状态（按当前平台/环境重写 LJANX 托管区）。
    *
    * ── Windows 上「无法选择工作区」的真实成因 ────────────────────────────────
    * 官方默认把 `directory-picker` 行挂成 dsh-host-directory-picker-auto，由它在
@@ -357,7 +386,11 @@ export class ServerManager {
 
     const groups = [this.pickerPatchLines(), clientHmrPatchLines(), webCapabilityPatchLines()].filter((group) => group.length > 0)
     const managed = groups.flatMap((group, index) => (index === 0 ? group : ['', ...group]))
-    const next = spliceManagedRegion(raw, managed)
+    // 先把旧品牌标记升级为新标记，保证存量 profile 的旧托管区能被正确识别并整段重写
+    const upgraded = raw
+      .replaceAll(MANAGED_BEGIN_LEGACY, MANAGED_BEGIN)
+      .replaceAll(MANAGED_END_LEGACY, MANAGED_END)
+    const next = spliceManagedRegion(upgraded, managed)
 
     if (next !== raw) {
       try {
@@ -389,15 +422,15 @@ export class ServerManager {
   /**
    * 目录选择器组合的补丁行（详见 ensureCordisPatch 的成因说明）。
    * 环境变量逃生门：
-   *   JACKDSH_FORCE_BROWSE_PICKER=1 —— 任何平台都固定为应用内浏览选择器
+   *   LJANX_FORCE_BROWSE_PICKER=1 —— 任何平台都固定为应用内浏览选择器
    *     （手机/异地远程操作时原生对话框弹在无人值守的宿主屏幕上，必须用浏览面）；
-   *   JACKDSH_FORCE_NATIVE_PICKER=1 —— 任何平台都保留官方 auto 行（愿意自己承担
+   *   LJANX_FORCE_NATIVE_PICKER=1 —— 任何平台都保留官方 auto 行（愿意自己承担
    *     native 崩溃风险时使用），优先级高于前一个。
    * @returns 托管区里的补丁行（数组元素即文件行，末尾无换行）
    */
   pickerPatchLines() {
-    const forceNative = process.env.JACKDSH_FORCE_NATIVE_PICKER === '1'
-    const forceBrowse = process.env.JACKDSH_FORCE_BROWSE_PICKER === '1'
+    const forceNative = process.env.LJANX_FORCE_NATIVE_PICKER === '1'
+    const forceBrowse = process.env.LJANX_FORCE_BROWSE_PICKER === '1'
     const wantBrowse = !forceNative && (forceBrowse || process.platform === 'win32')
 
     if (!wantBrowse) return []
@@ -486,12 +519,12 @@ export class ServerManager {
       DSH_WORKSPACE: this.defaultWorkspace,
       DSH_DESKTOP_ISOLATED: '1',
       NODE_ENV: 'production',
-      JACKDSH_VERSION: appVersion,
+      LJANX_VERSION: appVersion,
       ...(this.isPortable ? {
-        JACKDSH_PORTABLE_ROOT: this.dshHome,
+        LJANX_PORTABLE_ROOT: this.dshHome,
         DSH_IS_PORTABLE: '1',
       } : {
-        JACKDSH_WORKSPACE_ROOT: dirname(dirname(this.defaultWorkspace)),
+        LJANX_WORKSPACE_ROOT: dirname(dirname(this.defaultWorkspace)),
       }),
     }
 
@@ -711,7 +744,7 @@ function clientHmrPatchLines() {
  * 上游 dsh-base 已挂好 `web` / `web-search-deepseek` / `web-fetch-http` 三行，
  * 但 dsh-web-app（web 前端产品形态）会按「web 应用」的假设改动它们（如把
  * tool-web 交给各 agent preset 逐预设组装）。本发行版是原生 Electron 应用，
- * 不依赖 web 前端组装，因此在 JackDSH 托管区显式声明：能力 seam 与匿名
+ * 不依赖 web 前端组装，因此在 LJANX 托管区显式声明：能力 seam 与匿名
  * 公共 HTTP(S) 抓取 provider 常驻启用，避免上游组合变化把能力行关掉。
  * 搜索 provider 由 dsh-web-search-follow 插件的 follow-search 接管
  * （合成的 config.searchProvider 保持不动，补丁只改 disabled）。

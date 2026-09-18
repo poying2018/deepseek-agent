@@ -1,9 +1,11 @@
-appId: com.jackaistudio.jackdsh
-# ⚠️ appId 故意保持 com.jackaistudio.jackdsh **不随品牌改名**。
-# NSIS 的卸载注册表键 GUID 由 appId 派生：改了 appId 就会生成一个新 GUID，
-# 老版本在「应用和功能」里的卸载条目会变成删不掉的孤儿，且新旧版本无法原地覆盖升级。
-# appId 只出现在系统日志/清单里，用户基本看不到，没必要为此牺牲升级连续性。
-# 若确实要改，必须同时提供「卸载旧版 → 安装新版」的迁移指引。
+appId: com.ljanx.agent
+# ⚠️ appId 在 v1.2.0 跟随品牌改名（旧值 com.jackaistudio.jackdsh）。
+# NSIS 的卸载注册表键 GUID 由 appId 派生：改 appId 会生成新 GUID，因此
+#   1. 旧版本在「应用和功能」里的卸载条目会残留，需要手动卸载一次旧版；
+#   2. 新版会作为**独立应用**安装（不覆盖旧版），首次启动会自动迁移数据目录
+#      %APPDATA%\jackdsh → %APPDATA%\ljanx（见 src/main/index.js 的
+#      migrateLegacyUserData），工作区/会话/模型授权不会丢。
+# 迁移步骤：关闭旧版 → 安装新版 → 确认数据在 → 卸载旧版。
 productName: DeepSeek Agent
 npmRebuild: false
 directories:
@@ -117,7 +119,7 @@ nsis:
   # 卸载时不删用户数据目录（工作区、会话、模型授权都在 userData 下的 dsh-data），
   # 避免用户卸载重装时误丢工作区。
   #
-  # ⚠️ 数据目录路径由 package.json 的 `name`（= jackdsh）决定，**不随 productName 改名**，
-  # 否则 %APPDATA%\jackdsh\dsh-data 里的工作区/会话/模型授权会全部「消失」。
+  # ⚠️ 数据目录路径由 package.json 的 `name`（= ljanx）决定，**不随 productName 改名**，
+  # 否则 %APPDATA%\ljanx\dsh-data 里的工作区/会话/模型授权会全部「消失」。
   # 详见 README「品牌名与内部标识」一节。
   deleteAppDataOnUninstall: false

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, shell, dialog, clipboard, ipcMain } from 'electron'
-import { existsSync, readFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { findFreePort } from './port-finder.js'
@@ -28,10 +28,44 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
  * 快捷方式、exe 名、以及「应用和功能」里的显示名都由 productName 决定，不读这个常量。
  *
  * ⚠️ 更不要为了改名去调 app.setName()：Electron 的 userData 路径派生自
- * app.getName()，改了它，%APPDATA%\jackdsh\dsh-data 里的工作区/会话/模型授权
- * 会全部「消失」。package.json 的 name 与它必须保持为 jackdsh。
+ * app.getName()，改了它，%APPDATA%\ljanx\dsh-data 里的工作区/会话/模型授权
+ * 会全部「消失」。package.json 的 name 与它必须保持为 ljanx。
  */
 const APP_NAME = 'DeepSeek Agent'
+
+/**
+ * 品牌改名（jackdsh → ljanx）一次性数据迁移。
+ *
+ * package.json 的 `name` 决定 Electron 的 userData 路径，改名后若不做迁移，
+ * 新的 %APPDATA%\ljanx 是空目录，用户会以为「工作区/会话/模型授权/插件
+ * 全部消失」（数据其实还在旧的 %APPDATA%\jackdsh 里）。同盘 rename 是
+ * 瞬时操作，944MB 也不影响启动。
+ *
+ * 迁移失败时（最典型的场景：旧版应用还开着，目录里的 lockfile 被占用）
+ * 不硬来——退回继续使用旧目录，数据始终可用，下次启动再试。
+ */
+function migrateLegacyUserData() {
+  try {
+    const appData = app.getPath('appData')
+    const legacy = join(appData, 'jackdsh')
+    const current = join(appData, 'ljanx')
+    if (existsSync(current) || !existsSync(legacy)) return
+    try {
+      renameSync(legacy, current)
+      console.log(`[DeepSeek Agent] 已迁移数据目录: ${legacy} → ${current}`)
+    } catch (error) {
+      console.warn(
+        `[DeepSeek Agent] 数据目录迁移失败（旧版本可能仍在运行），本次继续使用旧目录: ${error.message}`,
+      )
+      app.setPath('userData', legacy)
+      app.setPath('sessionData', legacy)
+    }
+  } catch (error) {
+    console.warn(`[DeepSeek Agent] 数据目录迁移检查失败: ${error.message}`)
+  }
+}
+
+migrateLegacyUserData()
 
 let mainWindow = null
 let serverManager = null
@@ -120,7 +154,7 @@ if (!gotTheLock) {
 }
 
 // 全局响应渲染层顶栏智能双击事件：安全切换窗口最大化与还原（macOS 原生 Zoom）
-ipcMain.on('jackdsh:window-toggle-maximize', (event) => {
+ipcMain.on('ljanx:window-toggle-maximize', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win || win.isDestroyed()) return
   if (process.platform === 'darwin') {
@@ -144,7 +178,7 @@ ipcMain.on('jackdsh:window-toggle-maximize', (event) => {
 // 应用内「检查更新 / 下载更新 / 安装」
 //
 // 渲染层（左下角 sidebar.footer.action 的那个按钮）通过 preload 暴露的
-// window.jackdshNative.update.* 调到这四个 handle。
+// window.ljanxNative.update.* 调到这四个 handle。
 // handler 只在主进程跑网络与落盘；渲染层拿不到 fs/网络之外的任何能力。
 // ---------------------------------------------------------------------------
 const updateLogger = (label, error) => {
@@ -171,7 +205,7 @@ function readBundledCoreVersion() {
   return null
 }
 
-ipcMain.handle('jackdsh:update-info', async () => ({
+ipcMain.handle('ljanx:update-info', async () => ({
   ok: true,
   currentVersion: app.getVersion(),
   releasesPage: RELEASES_PAGE,
@@ -192,7 +226,7 @@ ipcMain.handle('jackdsh:update-info', async () => ({
   },
 }))
 
-ipcMain.handle('jackdsh:update-check', async () => {
+ipcMain.handle('ljanx:update-check', async () => {
   try {
     return await checkForUpdates({ currentVersion: app.getVersion() })
   } catch (error) {
@@ -201,12 +235,12 @@ ipcMain.handle('jackdsh:update-check', async () => {
   }
 })
 
-ipcMain.handle('jackdsh:update-download', async (event, asset) => {
+ipcMain.handle('ljanx:update-download', async (event, asset) => {
   try {
     const sender = event.sender
     const result = await downloadUpdate(asset, (progress) => {
       if (sender.isDestroyed()) return
-      sender.send('jackdsh:update-progress', progress)
+      sender.send('ljanx:update-progress', progress)
     })
     return result
   } catch (error) {
@@ -215,7 +249,7 @@ ipcMain.handle('jackdsh:update-download', async (event, asset) => {
   }
 })
 
-ipcMain.handle('jackdsh:update-install', async (_event, filePath) => {
+ipcMain.handle('ljanx:update-install', async (_event, filePath) => {
   try {
     return await installUpdate(filePath)
   } catch (error) {
@@ -224,7 +258,7 @@ ipcMain.handle('jackdsh:update-install', async (_event, filePath) => {
   }
 })
 
-ipcMain.handle('jackdsh:update-open-releases', async () => {
+ipcMain.handle('ljanx:update-open-releases', async () => {
   try {
     await openReleasesPage()
     return { ok: true }
@@ -250,7 +284,7 @@ function openUpdatePanel() {
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
-  win.webContents.send('jackdsh:update-open-panel')
+  win.webContents.send('ljanx:update-open-panel')
 }
 
 /**
@@ -267,7 +301,7 @@ function setupMacWindowDrag(win) {
 
   const titlebarCss = `
     /* 1. 顶部兜底拖拽条：新会话空白页时 38px 宽裕拖拽，有会话顶栏时收敛为 6px 边缘微缝 */
-    #jackdsh-titlebar-drag-strip {
+    #ljanx-titlebar-drag-strip {
       position: fixed;
       top: 0;
       left: 0;
@@ -276,8 +310,8 @@ function setupMacWindowDrag(win) {
       z-index: 10;
       -webkit-app-region: drag;
     }
-    :has(header:not([class*="headerHidden"])) #jackdsh-titlebar-drag-strip,
-    :has([class*="wSkVaW_header"]:not([class*="headerHidden"])) #jackdsh-titlebar-drag-strip {
+    :has(header:not([class*="headerHidden"])) #ljanx-titlebar-drag-strip,
+    :has([class*="wSkVaW_header"]:not([class*="headerHidden"])) #ljanx-titlebar-drag-strip {
       height: 6px;
     }
 
@@ -343,8 +377,8 @@ function setupMacWindowDrag(win) {
     }
 
     /* 模态互斥：只要存在真实的弹窗，立刻隐藏顶部遮罩条并冻结背景拖拽 */
-    body:has([role="dialog"]) #jackdsh-titlebar-drag-strip,
-    body:has([aria-modal="true"]) #jackdsh-titlebar-drag-strip {
+    body:has([role="dialog"]) #ljanx-titlebar-drag-strip,
+    body:has([aria-modal="true"]) #ljanx-titlebar-drag-strip {
       display: none !important;
     }
     body:has([role="dialog"]) header,
@@ -360,9 +394,9 @@ function setupMacWindowDrag(win) {
       await win.webContents.insertCSS(titlebarCss)
       await win.webContents.executeJavaScript(`
         (() => {
-          if (!document.getElementById('jackdsh-titlebar-drag-strip')) {
+          if (!document.getElementById('ljanx-titlebar-drag-strip')) {
             const strip = document.createElement('div');
-            strip.id = 'jackdsh-titlebar-drag-strip';
+            strip.id = 'ljanx-titlebar-drag-strip';
             document.body.prepend(strip);
           }
         })()
@@ -382,7 +416,7 @@ function setupApplicationMenu(win) {
     ...(isMac
       ? [
           {
-            // 用 APP_NAME 而非 app.name：app.name 取自 package.json 的 name（= jackdsh，
+            // 用 APP_NAME 而非 app.name：app.name 取自 package.json 的 name（= ljanx，
             // 为保住 userData 路径不能改），直接用它 macOS 菜单栏会显示成小写内部名。
             label: APP_NAME,
             submenu: [
@@ -630,7 +664,7 @@ app.whenReady().then(async () => {
       applicationName: APP_NAME,
       applicationVersion: `v${app.getVersion()}`,
       version: 'DeepSeek Harness 底座 v0.1.2-rc.1',
-      copyright: 'JackAIStudio · 基于 DeepSeek Harness 官方框架构建',
+      copyright: 'LJANX · 基于 DeepSeek Harness 官方框架构建',
     })
     await checkDataDirectory(app.getPath('userData'))
     await createWindow()

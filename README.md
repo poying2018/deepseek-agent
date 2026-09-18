@@ -4,9 +4,9 @@
 >
 > 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 23 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
 
-**当前版本：`1.0.0`**
+**当前版本：`1.2.0`**
 
-> ℹ️ 本发行版曾用名 **JackDSH**。改名只影响对外展示（窗口标题、安装包、快捷方式、「应用和功能」里的显示名），**不影响已有数据** —— 详见 [品牌名与内部标识](#-品牌名与内部标识)。
+> ℹ️ v1.2.0 起内部标识由 **JackDSH / jackdsh** 统一为 **LJANX / ljanx**（对外品牌名仍为 DeepSeek Agent）。旧安装的数据目录会在首次启动时**自动迁移**（`%APPDATA%\jackdsh` → `%APPDATA%\ljanx`），工作区/会话/模型授权不受影响 —— 详见 [品牌名与内部标识](#-品牌名与内部标识)。
 
 ---
 
@@ -40,7 +40,7 @@
    内置 Gemini / Grok 授权登录插件，以及 WorkBuddy 双轨并发直连，减少初期的折腾成本。
 
 5. **数据本地隔离**
-   运行时配置与数据存放在用户专属目录（`%APPDATA%\jackdsh\dsh-data`），不污染系统全局开发环境；卸载时默认保留。
+   运行时配置与数据存放在用户专属目录（`%APPDATA%\ljanx\dsh-data`），不污染系统全局开发环境；卸载时默认保留。
 
 ---
 
@@ -50,25 +50,25 @@
 
 | # | 插件 | 作用 | 来源 |
 | -- | :--- | :--- | :--- |
-| 1 | `dsh-mobile-plus` | 局域网手机遥控：文字与文件对话，带图标化会话入口 | [JackAIStudio](https://github.com/JackAIStudio/dsh-mobile-plus) |
-| 2 | `dsh-grok-oauth` | 独立、本机持有的 Grok（xAI）provider | [JackAIStudio](https://github.com/JackAIStudio/dsh-grok-oauth) |
-| 3 | `dsh-gemini-oauth` | 独立、本机持有的 Gemini provider（经 Antigravity / Cloud Code Assist） | [JackAIStudio](https://github.com/JackAIStudio/dsh-gemini-oauth) |
-| 4 | `dsh-deepseek-balance` | 输入框下方静默显示 DeepSeek API 余额，并提供设置页 | [JackAIStudio](https://github.com/JackAIStudio/dsh-deepseek-balance) |
-| 5 | `dsh-today` | 拦截默认新会话，直接打开「当日工作区」 | [JackAIStudio](https://github.com/JackAIStudio/dsh-today) |
-| 6 | `dsh-web-restart` | 侧栏一键重启 dsh web 服务 | [JackAIStudio](https://github.com/JackAIStudio/dsh-web-restart) |
-| 7 | `dsh-workspace-path` | 侧栏工作区中心，接管官方目录选择器 | [JackAIStudio](https://github.com/JackAIStudio/dsh-workspace-path) |
-| 8 | `dsh-robust-search` | 稳健的全文会话检索，隔离损坏数据 | [JackAIStudio](https://github.com/JackAIStudio/dsh-robust-search) |
-| 9 | `dsh-reminder` | 任务完成提示音（peon-ping 移植） | [JackAIStudio](https://github.com/JackAIStudio/dsh-reminder) |
-| 10 | `dsh-app-badge` | 系统 Dock / 任务栏未读角标 | [JackAIStudio](https://github.com/JackAIStudio/dsh-app-badge) |
-| 11 | `dsh-session-navigator` | 增强会话搜索与导航（会话 ID 命中、引用复制、置顶） | [JackAIStudio](https://github.com/JackAIStudio/dsh-session-navigator) |
-| 12 | `dsh-plugin-dashboard` | 插件与版本大盘：版本矩阵、无感热开关、一键诊断复制 | [JackAIStudio](https://github.com/JackAIStudio/dsh-plugin-dashboard) |
-| 13 | `dsh-web-search-follow` | 联网搜索后端跟随当前会话模型 | [JackAIStudio](https://github.com/JackAIStudio/dsh-web-search-follow) |
-| 14 | `dsh-workbuddy-dual` | 同时接入 WorkBuddy 国内版与海外版模型，双轨并发 | [JackAIStudio](https://github.com/JackAIStudio/dsh-workbuddy-dual) |
-| 15 | `dsh-better-sidebar` | VSCode 风格侧栏（资源管理器 / 编辑器 / 终端） | [JackAIStudio](https://github.com/JackAIStudio/DSH-better-sidebar) |
-| 16 | `dsh-paste-path` | 任意文件/文件夹的智能拖拽与路径粘贴 | [JackAIStudio](https://github.com/JackAIStudio/dsh-paste-path) |
-| 17 | `dsh-autostart` | 跨平台开机自启动开关 | [JackAIStudio](https://github.com/JackAIStudio/dsh-autostart) |
-| 18 | `dsh-browser-attach` | 经 CDP 接管本机真实 Chrome（复用登录态） | [JackAIStudio](https://github.com/JackAIStudio/dsh-browser-attach) |
-| 19 | `dsh-cmdj-toggle` | Cmd/Ctrl+J 聚焦热键，折叠/展开侧栏 | [JackAIStudio](https://github.com/JackAIStudio/dsh-cmdj-toggle) |
+| 1 | `dsh-mobile-plus` | 局域网手机遥控：文字与文件对话，带图标化会话入口 | [LJANX](https://github.com/LJANX/dsh-mobile-plus) |
+| 2 | `dsh-grok-oauth` | 独立、本机持有的 Grok（xAI）provider | [LJANX](https://github.com/LJANX/dsh-grok-oauth) |
+| 3 | `dsh-gemini-oauth` | 独立、本机持有的 Gemini provider（经 Antigravity / Cloud Code Assist） | [LJANX](https://github.com/LJANX/dsh-gemini-oauth) |
+| 4 | `dsh-deepseek-balance` | 输入框下方静默显示 DeepSeek API 余额，并提供设置页 | [LJANX](https://github.com/LJANX/dsh-deepseek-balance) |
+| 5 | `dsh-today` | 拦截默认新会话，直接打开「当日工作区」 | [LJANX](https://github.com/LJANX/dsh-today) |
+| 6 | `dsh-web-restart` | 侧栏一键重启 dsh web 服务 | [LJANX](https://github.com/LJANX/dsh-web-restart) |
+| 7 | `dsh-workspace-path` | 侧栏工作区中心，接管官方目录选择器 | [LJANX](https://github.com/LJANX/dsh-workspace-path) |
+| 8 | `dsh-robust-search` | 稳健的全文会话检索，隔离损坏数据 | [LJANX](https://github.com/LJANX/dsh-robust-search) |
+| 9 | `dsh-reminder` | 任务完成提示音（peon-ping 移植） | [LJANX](https://github.com/LJANX/dsh-reminder) |
+| 10 | `dsh-app-badge` | 系统 Dock / 任务栏未读角标 | [LJANX](https://github.com/LJANX/dsh-app-badge) |
+| 11 | `dsh-session-navigator` | 增强会话搜索与导航（会话 ID 命中、引用复制、置顶） | [LJANX](https://github.com/LJANX/dsh-session-navigator) |
+| 12 | `dsh-plugin-dashboard` | 插件与版本大盘：版本矩阵、无感热开关、一键诊断复制 | [LJANX](https://github.com/LJANX/dsh-plugin-dashboard) |
+| 13 | `dsh-web-search-follow` | 联网搜索后端跟随当前会话模型 | [LJANX](https://github.com/LJANX/dsh-web-search-follow) |
+| 14 | `dsh-workbuddy-dual` | 同时接入 WorkBuddy 国内版与海外版模型，双轨并发 | [LJANX](https://github.com/LJANX/dsh-workbuddy-dual) |
+| 15 | `dsh-better-sidebar` | VSCode 风格侧栏（资源管理器 / 编辑器 / 终端） | [LJANX](https://github.com/LJANX/DSH-better-sidebar) |
+| 16 | `dsh-paste-path` | 任意文件/文件夹的智能拖拽与路径粘贴 | [LJANX](https://github.com/LJANX/dsh-paste-path) |
+| 17 | `dsh-autostart` | 跨平台开机自启动开关 | [LJANX](https://github.com/LJANX/dsh-autostart) |
+| 18 | `dsh-browser-attach` | 经 CDP 接管本机真实 Chrome（复用登录态） | [LJANX](https://github.com/LJANX/dsh-browser-attach) |
+| 19 | `dsh-cmdj-toggle` | Cmd/Ctrl+J 聚焦热键，折叠/展开侧栏 | [LJANX](https://github.com/LJANX/dsh-cmdj-toggle) |
 | 20 | `dsh-connect-workbuddy` | 零配置接入 WorkBuddy 桌面端已登录模型 | [dingminhua](https://github.com/dingminhua/dsh-connect-workbuddy) |
 | 21 | `dsh-codex-timeline` | 官方会话的搜索、收藏、分支与个性化 | npm |
 | 22 | `@mlgbnb/dsh-archive-manager` | 归档会话的预览、恢复与删除 | npm |
@@ -99,19 +99,31 @@ pnpm build:mac                  # macOS 镜像
 
 ## 🏷️ 品牌名与内部标识
 
-对外品牌名是 **DeepSeek Agent**，但仓库里有一批 `JackDSH` / `jackdsh` 字样属于**内部契约，不能随改名一起换掉**。动它们会直接损坏老用户的数据或升级路径：
+对外品牌名是 **DeepSeek Agent**；内部标识自 **v1.2.0** 起统一为 **LJANX / ljanx**（此前为 JackDSH / jackdsh）。
 
-| 标识 | 位置 | 为什么必须保留 |
+### 改名时的自动迁移（老安装无需手工操作）
+
+| 迁移项 | 旧值 → 新值 | 实现位置 |
 | :--- | :--- | :--- |
-| `"name": "jackdsh"` | `package.json` | Electron 的 `userData` 路径由它派生（`%APPDATA%\jackdsh`）。改了它，`dsh-data` 里的工作区、会话、模型授权会全部「消失」。**也不要为此调 `app.setName()`**，效果等价。 |
-| `# >>> JackDSH 托管区 …` / `# <<< JackDSH 托管区 <<<` | `server-manager.js` 写入 `cordis.patch.yml` | 重写托管补丁区时是**精确匹配**这两个标记。改了标记，老用户 profile 里的旧托管区摘不掉，新旧并存 → 补丁 id 重复。 |
-| `~/Documents/JackDSH` | `server-manager.js` 当日工作区输出目录 | 插件 `dsh-today` 把该路径硬编码为「品牌标准根目录」，改名会导致两边解析不一致。 |
-| `com.jackaistudio.jackdsh` | `electron-builder.yml` 的 `appId` | NSIS 卸载注册表键的 GUID 由 appId 派生。改了会生成新 GUID，老版本在「应用和功能」里的条目变成删不掉的孤儿。 |
+| Electron 数据目录 | `%APPDATA%\jackdsh` → `%APPDATA%\ljanx` | `src/main/index.js` → `migrateLegacyUserData()`（同盘 rename；若旧版仍在运行导致占用，则回退继续用旧目录，下次启动再试） |
+| Agent 预设 id | `jack` → `ljanx`（含 `.agent-presets/` 目录内容） | `src/main/server-manager.js`（拷贝旧预设内容 + 改 `settings.yaml` 的 `agent-presets.default`） |
+| `cordis.patch.yml` 托管区标记 | `JackDSH 托管区` → `LJANX 托管区` | `src/main/server-manager.js`（先把旧标记升级为新标记，再整段重写，避免新旧托管区并存导致补丁 id 重复） |
+| 当日工作区根目录 | `~/Documents/JackDSH` → `~/Documents/LJANX` | 宿主 `resolveInitialWorkspace()`；上游插件 `dsh-today` 由 `scripts/prepare-bundle.js` 的**品牌对齐补丁**同步改写（保留旧目录只读回退） |
 
-**要改的只有对外展示名**，入口是这两个：
+### 有意保留的旧名（兼容，勿删）
+
+| 标识 | 位置 | 为什么保留 |
+| :--- | :--- | :--- |
+| `window.jackdshNative` | `src/preload/preload.cjs` | 上游社区插件（`dsh-app-badge`、`dsh-mobile-plus`、`dsh-plugin-dashboard` 等）用它探测「是否在桌面客户端里」。改名后仍以同名桥暴露同一对象，避免这些插件退化。待上游改用 `window.ljanxNative` 后可移除。 |
+| `JackDSH`（只读回退） | `dsh-today` 的 `resolve.js` | 老用户的当日工作区在旧目录里；补丁让插件 LJANX 优先、旧目录兜底，数据不「消失」。 |
+| `com.jackaistudio.jackdsh`（历史 appId） | 系统卸载注册表 | v1.2.0 起 appId 改为 `com.ljanx.agent`：新安装包会作为**独立应用**安装，旧版本的卸载条目需要手动清理一次。 |
+
+### 对外展示名的入口
 
 - `electron-builder.yml` → `productName`（安装包名、exe 名、快捷方式、「应用和功能」显示名）
 - `src/main/index.js` → `APP_NAME` 常量（窗口标题、macOS 应用菜单、关于面板、弹窗标题）
+
+> ⚠️ 升级步骤：关闭旧版 → 安装新版（数据自动迁移）→ 打开确认工作区/会话正常 → 在「应用和功能」里卸载旧版条目。
 
 > 窗口标题还有一处细节：网页底座自带 `<title>DeepSeek Harness</title>`，不拦会顶掉发行版名。
 > `page-title-updated` 里做的是**定向改写**（把底座名换成品牌名）而非整串覆盖，

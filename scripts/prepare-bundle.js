@@ -302,7 +302,77 @@ function ensureRepoBuilt(dir, entry, origin) {
 }
 
 console.log('🧩 [2/4] 收纳精选插件与依赖...')
-// 两个来源合并处理：清单里的外部插件 + 仓内第一方插件（builtin-plugins/）
+/**
+ * 插件侧品牌对齐补丁：把上游插件硬编码的旧品牌目录字面量换成本发行版的 LJANX，
+ * 并保留对旧目录（JackDSH）的只读回退，老用户的既有数据不会「找不到」。
+ *
+ * 目标目前只有 dsh-today/resolve.js（`~/Documents/JackDSH` 品牌标准根目录解析）。
+ * 逐条替换，任何一条没匹配到只打印告警、不中断构建——上游改结构时插件仍可打包，
+ * 只是需要人工同步本补丁。
+ *
+ * @param {string} name 插件名
+ * @param {string} dir 已暂存的插件目录（bundle-runtime/plugins/<name>）
+ */
+function applyPluginBrandAlignment(name, dir) {
+  if (name !== 'dsh-today') return
+  const file = join(dir, 'resolve.js')
+  if (!existsSync(file)) return
+  let text = readFileSync(file, 'utf8')
+  // ⚠️ 上游文件是 CRLF：多行锚点必须按文件自身行尾拼，否则一处都匹配不上
+  const EOL = text.includes('\r\n') ? '\r\n' : '\n'
+  const L = (...lines) => lines.join(EOL)
+  const edits = [
+    // 便携模式：<根目录>/JackDSH → <根目录>/LJANX
+    {
+      from: "join(portableRoot, 'JackDSH')",
+      to: "join(portableRoot, 'LJANX')",
+    },
+    // Documents 下：LJANX 优先，回退旧目录 JackDSH（老用户的既有当日工作区）
+    {
+      from: L(
+        "    const jackDoc = join(docDir, 'JackDSH')",
+        '    if (existsSync(jackDoc) && isDirectory(jackDoc)) return jackDoc',
+      ),
+      to: L(
+        "    const ljanxDoc = join(docDir, 'LJANX')",
+        '    if (existsSync(ljanxDoc) && isDirectory(ljanxDoc)) return ljanxDoc',
+        "    const jackDoc = join(docDir, 'JackDSH')",
+        '    if (existsSync(jackDoc) && isDirectory(jackDoc)) return jackDoc',
+      ),
+    },
+    // 新建机器时默认返回 Documents/LJANX
+    { from: L('    return jackDoc', '  }'), to: L('    return ljanxDoc', '  }') },
+    // 家目录兜底：LJANX 优先，回退旧 JackDSH
+    {
+      from: L("  const jackHome = join(home, 'JackDSH')", '  if (existsSync(jackHome) && isDirectory(jackHome)) return jackHome'),
+      to: L(
+        "  const ljanxHome = join(home, 'LJANX')",
+        '  if (existsSync(ljanxHome) && isDirectory(ljanxHome)) return ljanxHome',
+        "  const jackHome = join(home, 'JackDSH')",
+        '  if (existsSync(jackHome) && isDirectory(jackHome)) return jackHome',
+      ),
+    },
+    { from: L('  return jackHome', '}'), to: L('  return ljanxHome', '}') },
+  ]
+  let applied = 0
+  for (const edit of edits) {
+    if (text.includes(edit.to)) continue // 已打过（幂等）
+    if (!text.includes(edit.from)) {
+      console.warn(
+        `  ⚠️ 品牌对齐补丁未命中（上游结构可能已变）: ${name}/resolve.js ← ${JSON.stringify(edit.from.slice(0, 44))}`,
+      )
+      continue
+    }
+    text = text.replace(edit.from, edit.to)
+    applied += 1
+  }
+  if (applied > 0) {
+    writeFileSync(file, text)
+    console.log(`  🏷️ 品牌对齐补丁（${applied} 处）: ${name}/resolve.js → LJANX（保留 JackDSH 只读回退）`)
+  }
+}
+
+
 const pluginSources = [
   ...manifest.map((entry) => ({ entry, inRepo: false })),
   ...inRepoPlugins.map((name) => ({ entry: { name }, inRepo: true })),
@@ -326,6 +396,14 @@ for (const { entry, inRepo } of pluginSources) {
       return true
     },
   })
+
+  // ── 品牌对齐补丁（插件侧）──────────────────────────────────────────────
+  // 宿主自 v1.2.0 起品牌标识统一为 LJANX（当日工作区根目录 ~/Documents/LJANX），
+  // 但上游插件把旧品牌目录字面量硬编码在源码里（如 dsh-today 的
+  // resolve.js 把 ~/Documents/JackDSH 当「品牌标准根目录」）。不处理的话，
+  // 宿主与插件会各写一个目录。这里做窄范围替换：新名优先，旧目录保留只读回退，
+  // 老用户既有的当日工作区仍能被找到。
+  applyPluginBrandAlignment(entry.name, dest)
 
   // 关键门禁校验：严查插件入口文件（main / exports）是否真实存在，杜绝缺少 lib/ 编译产物打出空壳包
   const pluginPkgPath = join(dest, 'package.json')
