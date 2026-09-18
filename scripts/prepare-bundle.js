@@ -356,6 +356,51 @@ const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: '@mlgbnb/dsh-archive-manager',
+    desc: '归档列表/详情改用隔离数据目录，并兼容 0.1.5 的分目录投影缓存',
+    // 「已归档的会话无法正常显示」的两处根因：
+    //  ① 插件把数据目录硬编码成 `~/.dsh`，完全忽略本发行版为内核设置的隔离 DSH_HOME
+    //     （%APPDATA%\\ljanx\\dsh-data）→ 读到的是遗留的旧数据/读不到归档列表；
+    //  ② 它只认旧的单文件投影缓存 storages/session_projcache.json，而内核 0.1.5 起
+    //     已改成目录形式 storages/session_projcache/sessions/<id>.json（记录结构一致）。
+    edits: [
+      {
+        file: 'lib/index.js',
+        from: "  return join(homedir(), '.dsh')",
+        to: "  const envHome = process.env.DSH_HOME ?? process.env.JACKDSH_HOME; return envHome && String(envHome).trim() ? String(envHome).trim() : join(homedir(), '.dsh')",
+      },
+      {
+        file: 'lib/index.js',
+        from: '/** Path to session_projcache.json. */',
+        to: [
+          '/** 兼容读取投影缓存：内核 0.1.5 起存成分目录 sessions/<id>.json，旧版是单文件。 */',
+          'export function readProjcacheCompat() {',
+          '  const legacy = readJsonFile(projcachePath())',
+          '  if (legacy?.tables?.sessions && Object.keys(legacy.tables.sessions).length > 0) return legacy',
+          "  const dir = join(dshHome(), 'storages', 'session_projcache', 'sessions')",
+          '  const sessions = {}',
+          '  try {',
+          '    for (const entry of readdirSync(dir)) {',
+          "      if (!entry.endsWith('.json')) continue",
+          '      const parsed = readJsonFile(join(dir, entry))',
+          '      const record = parsed?.record ?? parsed',
+          "      if (record) sessions[entry.replace(/\\.json$/, '')] = record",
+          '    }',
+          '  } catch {}',
+          '  return { tables: { sessions } }',
+          '}',
+          '',
+          '/** Path to session_projcache.json. */',
+        ].join('\n'),
+      },
+      {
+        file: 'lib/index.js',
+        from: 'const projcache = readJsonFile(projcachePath())',
+        to: 'const projcache = readProjcacheCompat()',
+      },
+    ],
+  },
 ]
 
 /**
@@ -451,7 +496,7 @@ function applyPluginBrandAlignment(name, dir) {
       )
       continue
     }
-    text = text.replace(edit.from, edit.to)
+    text = text.replaceAll(edit.from, edit.to)
     applied += 1
   }
   if (applied > 0) {
