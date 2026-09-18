@@ -1,6 +1,6 @@
 {
   "name": "ljanx",
-  "version": "1.2.5",
+  "version": "1.3.0",
   "type": "module",
   "description": "DeepSeek Agent (开箱即用 DeepSeek Harness 桌面客户端，内置创作者工作台与精选插件)",
   "main": "src/main/index.js",

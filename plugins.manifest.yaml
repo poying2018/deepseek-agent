@@ -127,3 +127,22 @@ plugins:
   # 若将来本发行版内核升到 >=0.1.5 且 pi-ai 升到 >=0.85.1，可改钉 2.x。
   - name: dsh-connect-trae
     npm: "dsh-connect-trae@1.3.0"
+
+  # ── 社区插件（作者独立仓库，MIT）────────────────────────────────────────────
+  # 依赖自检（2026-09-18）：
+  #   · dsh-damage-pulse：运行时依赖 zod（宿主面）——本发行版 node_modules 已有
+  #     zod@4.5.4 ✅（满足其 peer ^4.4.3）；declared dependency qrcode 已被作者
+  #     打进 lib/client.js（客户端 261KB 已自包含，运行期不 require），无需补装。
+  #     其余 peer 全是 @deepseek-ai/* 内核包与 react，均已就位。
+  #   · dsh-undo-savepoint：零 dependencies / peerDependencies，只用 node 内置模块 ✅。
+
+  # Token 余额监控：鲸鱼娘待机/扣费/复苏动画、峰谷计费、连续扣费飘字、会话费用统计。
+  - name: dsh-damage-pulse
+    repo: https://github.com/wssfk12138/dsh-damage-pulse.git
+    ref: master
+
+  # 崩溃救援：配置与插件代码变更的可回滚快照、密钥安全、一键 SAFE MODE、
+  # 以及 DSH 起不来时也能用的离线 CLI/GUI。
+  - name: dsh-undo-savepoint
+    repo: https://github.com/lire1131/dsh-undo-savepoint.git
+    ref: master

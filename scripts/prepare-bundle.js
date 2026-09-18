@@ -9,6 +9,18 @@ import { ALL_BUILTIN_PLUGINS } from '../src/main/own-plugins.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = join(__dirname, '..')
 const runtimeDir = join(rootDir, 'bundle-runtime')
+
+/**
+ * 打包瘦身：逐插件声明「顶层目录裁剪」。
+ * 这些目录是插件仓库的文档/截图资产，运行期不引用（以 lib 里的相对引用为准），
+ * 打进安装包只会让体积白白膨胀。只按顶层目录名匹配，避免误伤运行期资源。
+ *   · dsh-damage-pulse：docs/ 31MB（README 用的预览图/HTML/发布记录）
+ *   · dsh-undo-savepoint：docs/ 856KB（说明与截图）
+ */
+const PLUGIN_PRUNE_DIRS = {
+  'dsh-damage-pulse': ['docs'],
+  'dsh-undo-savepoint': ['docs'],
+}
 const localPluginsDir = join(rootDir, '../plugins')
 // 仓内第一方插件：源码就在本仓库里（builtin-plugins/<name>），不依赖外部 repo。
 // 与 ../plugins（开发者本机、仓库之外）的区别是：**它会被提交**，所以 CI 也能打包，
@@ -571,6 +583,10 @@ for (const { entry, inRepo } of pluginSources) {
   const dest = join(runtimeDir, 'plugins', entry.name)
   mkdirSync(dirname(dest), { recursive: true })
   console.log(`  -> 复制插件: ${entry.name} (${origin})`)
+  // 打包瘦身：个别插件仓库把文档/截图放在 docs/ 下（dsh-damage-pulse 的 docs 有 31MB），
+  // 运行期不引用它们（lib 只引用 assets/），打进安装包纯属浪费。
+  // 只裁顶层目录名，且逐插件声明，避免误伤其它插件运行期需要的目录。
+  const prunedDirs = PLUGIN_PRUNE_DIRS[entry.name] ?? []
   cpSync(src, dest, {
     recursive: true,
     filter: (srcPath) => {
@@ -579,6 +595,11 @@ for (const { entry, inRepo } of pluginSources) {
       if (base === '.git' || base === '.DS_Store' || base === 'node_modules') return false
       if (base.startsWith('.env') || base.includes('credential') || base.includes('token.json')) return false
       if (base === '.dsh-mobile-inbox') return false
+      // 顶层裁剪目录（只在插件根下的直接子目录命中时排除）
+      if (prunedDirs.includes(base)) {
+        const rel = srcPath.slice(src.length).replace(/^[/\\]/, '')
+        if (rel === base) return false
+      }
       return true
     },
   })

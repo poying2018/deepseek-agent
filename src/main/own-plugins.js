@@ -58,6 +58,14 @@ export const COMMUNITY_PLUGINS = [
   // 1.2.0 的 CHANGELOG 明写「适配 DSH v0.1.2-rc.1 上游重构」，1.3.0 只是在其上加
   // 模型名内嵌积分倍率，故取 1.3.0。
   'dsh-connect-trae',
+  // ── 社区插件（作者独立仓库，MIT，源见 plugins.manifest.yaml）───────────────
+  //   · dsh-damage-pulse  —— Token 余额监控：鲸鱼娘待机/扣费/复苏动画、峰谷计费、
+  //     连续扣费飘字、会话费用统计。宿主面只依赖 zod（本发行版已有 4.5.4 ✅）；
+  //     其 declared dependency qrcode 已被作者打进客户端 bundle，运行期不 require ✅。
+  //   · dsh-undo-savepoint —— 崩溃救援：配置/插件代码变更的可回滚快照、密钥安全、
+  //     一键 SAFE MODE，以及 DSH 起不来时也能用的离线 CLI/GUI。零依赖 ✅。
+  'dsh-damage-pulse',
+  'dsh-undo-savepoint',
 ]
 
 export const ALL_BUILTIN_PLUGINS = [
