@@ -303,6 +303,73 @@ function ensureRepoBuilt(dir, entry, origin) {
 
 console.log('🧩 [2/4] 收纳精选插件与依赖...')
 /**
+ * 插件运行期兼容补丁（表驱动）。
+ *
+ * 目标插件是第三方仓库（CI 现场 clone），它们的实现细节与本发行版的宿主策略
+ * 有冲突时只能在这里构建期改写。逐条替换、幂等：已打过就跳过，锚点没命中只告警
+ * 不中断（上游改结构时仍能出包，只是需要人工同步补丁）。
+ */
+const PLUGIN_RUNTIME_PATCHES = [
+  {
+    plugin: 'dsh-codearts-auth',
+    // 「登录时同时弹出两个浏览器」的两处根因：
+    //  ① 客户端 lib/client/jet-hub.js 用 window.open(loginUrl) 开登录页。宿主主进程的
+    //     windowOpenHandler 会把 https 转给系统浏览器并拒绝应用内窗口 → window.open
+    //     返回空 → 插件随后 `window.location.href = loginUrl` 兜底，把**应用主窗口**整页
+    //     导航成第三方登录页（用户看到「应用里又弹了个浏览器」）。
+    //  ② codearts 的宿主登录流程（lib/login.js）自己也会用系统浏览器打开一次，而客户端
+    //     还会再开一次 → 系统浏览器两个标签页。（buddy/workbuddy 的宿主传的是空 opener，
+    //     只靠客户端开，所以不能无脑删客户端的 window.open。）
+    // 改法：客户端不再导航主窗口；宿主那一次让给客户端统一开（客户端那次也会被主进程
+    // 转成系统浏览器），于是任何 provider 都恰好只开一个系统浏览器。
+    edits: [
+      {
+        file: 'lib/client/jet-hub.js',
+        from: 'window.location.href = loginUrl;',
+        to: 'void 0;/* LJANX: 不把应用窗口导航成登录页，登录页统一交给系统浏览器 */',
+      },
+      {
+        file: 'lib/jet-hub-rpc.js',
+        from: 'const loginResult = await codearts.login({ refName, accountId: id, pool });',
+        to: 'const loginResult = await codearts.login({ refName, accountId: id, pool, openBrowser: () => { } });',
+      },
+    ],
+  },
+]
+
+/**
+ * 应用插件运行期兼容补丁。
+ * @param {string} name 插件名
+ * @param {string} dir 已暂存的插件目录（bundle-runtime/plugins/<name>）
+ */
+function applyPluginRuntimePatches(name, dir) {
+  const entry = PLUGIN_RUNTIME_PATCHES.find((it) => it.plugin === name)
+  if (entry === undefined) return
+  let applied = 0
+  for (const edit of entry.edits) {
+    const file = join(dir, edit.file)
+    if (!existsSync(file)) {
+      console.warn(`  ⚠️ 插件补丁目标文件不存在: ${name}/${edit.file}`)
+      continue
+    }
+    const text = readFileSync(file, 'utf8')
+    if (text.includes(edit.to)) continue // 幂等
+    if (!text.includes(edit.from)) {
+      console.warn(
+        `  ⚠️ 插件补丁未命中（上游结构可能已变）: ${name}/${edit.file} ← ${JSON.stringify(edit.from.slice(0, 48))}`,
+      )
+      continue
+    }
+    writeFileSync(file, text.replace(edit.from, edit.to))
+    applied += 1
+  }
+  if (applied > 0) {
+    console.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（登录统一走系统浏览器，不再开应用内窗口）`)
+  }
+}
+
+
+/**
  * 插件侧品牌对齐补丁：把上游插件硬编码的旧品牌目录字面量换成本发行版的 LJANX，
  * 并保留对旧目录（JackDSH）的只读回退，老用户的既有数据不会「找不到」。
  *
@@ -404,6 +471,9 @@ for (const { entry, inRepo } of pluginSources) {
   // 宿主与插件会各写一个目录。这里做窄范围替换：新名优先，旧目录保留只读回退，
   // 老用户既有的当日工作区仍能被找到。
   applyPluginBrandAlignment(entry.name, dest)
+
+  // 插件运行期兼容补丁（表驱动，见 PLUGIN_RUNTIME_PATCHES 的成因说明）
+  applyPluginRuntimePatches(entry.name, dest)
 
   // 关键门禁校验：严查插件入口文件（main / exports）是否真实存在，杜绝缺少 lib/ 编译产物打出空壳包
   const pluginPkgPath = join(dest, 'package.json')

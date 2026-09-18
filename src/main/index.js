@@ -606,6 +606,23 @@ async function createWindow() {
     return { action: 'allow' }
   })
 
+  // 应用窗口本身也绝不导航到外部站点（那条路绕不过 windowOpenHandler）：
+  // 有些插件在「新窗口被拒」后会退化成 `window.location.href = 登录页`，
+  // 把主窗口整页变成第三方登录页——用户看到的就是「应用里开了个浏览器」。
+  // 这里统一改成交给系统浏览器，同源（内核页面/前端路由）照常放行。
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!/^https?:/i.test(url)) return
+    try {
+      const target = new URL(url)
+      const appOrigin = serverUrl ? new URL(serverUrl).origin : ''
+      if (target.origin === appOrigin) return
+      event.preventDefault()
+      shell.openExternal(url)
+    } catch {
+      event.preventDefault()
+    }
+  })
+
   mainWindow.webContents.on('did-finish-load', () => {
     // 注意：启动占位页是超长的 data: URL，别整串打出来
     const u = mainWindow?.webContents.getURL() || ''
