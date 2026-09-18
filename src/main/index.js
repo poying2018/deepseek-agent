@@ -32,6 +32,35 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
+// ── 性能优化：削减 Chromium 后台/空闲 CPU 空转 ──────────────────────────────
+// 下面这组开关专门砍掉 Electron/Chromium 在「不忙着聊天」时也持续占用的 CPU：
+// 后台网络心跳、组件自更新、遥测上报、翻译/媒体路由(投屏)发现、以及 Windows 原生窗口
+// 遮挡计算（CalculateNativeWinOcclusion 在 AMD/N 卡上会周期性触发重绘风暴，是空闲 CPU 大户）。
+// 注意：这些都不影响本应用自身的网络请求（LLM/工具调用走 renderer/node fetch，与
+// background-networking 无关），也不影响我们自己的后台定时器（上面的 anti-throttle 仍生效）。
+//  - disable-background-networking ：停掉 Chromium 自有后台网络（组件更新/安全浏览/连通性探测等心跳）
+//  - disable-component-update      ：禁止组件后台自更新轮询
+//  - disable-default-apps          ：不预拉取默认应用清单
+//  - disable-extensions            ：本应用不用扩展，关掉扩展子系统常驻
+//  - disable-sync                  ：关闭 Chrome 同步（无账号体系，纯省 CPU）
+//  - disable-translate             ：关闭内置翻译服务
+//  - disable-metrics               ：关闭遥测录制与上报
+//  - disable-features             ：关掉会偷偷吃 CPU 的特性
+//       · CalculateNativeWinOcclusion ：Windows 原生遮挡计算（空闲 CPU 大户）
+//       · Translate / BackForwardCache / MediaRouter / OptimizationHints /
+//         DocumentPictureInPicture ：翻译、BF 缓存、投屏(mDNS/SSDP)发现、优化提示、画中画
+app.commandLine.appendSwitch('disable-background-networking')
+app.commandLine.appendSwitch('disable-component-update')
+app.commandLine.appendSwitch('disable-default-apps')
+app.commandLine.appendSwitch('disable-extensions')
+app.commandLine.appendSwitch('disable-sync')
+app.commandLine.appendSwitch('disable-translate')
+app.commandLine.appendSwitch('disable-metrics')
+app.commandLine.appendSwitch(
+  'disable-features',
+  'CalculateNativeWinOcclusion,Translate,BackForwardCache,MediaRouter,OptimizationHints,DocumentPictureInPicture',
+)
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 /**

@@ -146,3 +146,23 @@ plugins:
   - name: dsh-undo-savepoint
     repo: https://github.com/lire1131/dsh-undo-savepoint.git
     ref: master
+
+  # Qoder CN adapter（作者 mo-n，MIT）—— 把 Qoder 订阅账号接成 DSH 的 LLM provider：
+  #   · COSY 签名 + WAF 编码流式传输，直连 gateway.qoder.com.cn；
+  #   · PAT（pt-...）通过 Models 页面安全存储、按进程换取短期 job token；
+  #   · 支持公开云（仅需 PAT）和企业 VPC（settings.yaml 里设 llm-qoder.vpcInstance）；
+  #   · 模型目录实时从 /algo/api/v2/model/list 拉取，新增 wire key（如 gmodel → glm-5.2）
+  #     无需插件更新；内置重试由 dsh-llm-retry 统一接管。
+  #
+  # 依赖自检（2026-09-18）：
+  #   · peerDependencies：@deepseek-ai/cordis ^4.0.2（宿主 4.0.2 ✅）、
+  #     @deepseek-ai/dsh-{api-remotes,attachment,client-connection,client-locale,
+  #     client-ui-settings,client-ui-slots,credentials,invariants,llm,settings,web}
+  #     >=0.1.2-rc.1 <0.2（本发行版 0.1.5-rc.2 全部落在此区间 ✅）；
+  #   · dependencies：@deepseek-ai/schemastery 3.18.1（宿主自带 ✅）；
+  #   · 需搭配 @deepseek-ai/dsh-llm-retry 启用重试策略（已在内核清单里 ✅）。
+  #
+  # 安装后需：Settings → Models → Add provider → qoder-cn，粘贴 PAT。
+  - name: dsh-provider-qoder
+    repo: https://github.com/mo-n/dsh-provider-qoder.git
+    ref: main

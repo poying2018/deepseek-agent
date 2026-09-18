@@ -66,6 +66,11 @@ export const COMMUNITY_PLUGINS = [
   //     一键 SAFE MODE，以及 DSH 起不来时也能用的离线 CLI/GUI。零依赖 ✅。
   'dsh-damage-pulse',
   'dsh-undo-savepoint',
+  // Qoder CN adapter（作者 mo-n，MIT）—— 把 Qoder 订阅账号接成 DSH 的 LLM provider：
+  // COSY 签名 + WAF 编码流式传输、PAT 安全存储、实时模型目录拉取、企业 VPC 支持。
+  // peerDependencies 全部落在宿主 0.1.5-rc.2 区间，schemastery 3.18.1 宿主自带，
+  // 需搭配 dsh-llm-retry 启用重试（内核清单已含）。
+  'dsh-provider-qoder',
 ]
 
 export const ALL_BUILTIN_PLUGINS = [
