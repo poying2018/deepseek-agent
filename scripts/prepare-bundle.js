@@ -401,6 +401,51 @@ const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: 'dsh-web-search-follow',
+    desc: '未适配模型回退 DeepSeek 官方搜索；凭据路径优先隔离 DSH_HOME',
+    // 「新加的（web 搜索）插件用不了」的两个根因：
+    //  ① follow-search 只适配 Grok / Gemini / DeepSeek 三种模型路由，其它模型
+    //     （workbuddy / trae / codebuddy / codearts…）一律抛
+    //     `provider "xxx" has no native search adapter yet` → 这些模型下 web_search
+    //     完全不可用。改为回退到 DeepSeek 官方搜索：用用户自己的 DEEPSEEK_API_KEY、
+    //     DeepSeek 侧默认模型，与当前聊天模型无关，也不动其它服务商的额度。
+    //  ② deepseek.js 的凭据回退路径硬编码 ~/.dsh，忽略本发行版给内核设的隔离
+    //     DSH_HOME（与新版凭据存储格式也不匹配）。
+    edits: [
+      {
+        file: 'index.js',
+        fromLines: [
+          '      // 未适配的其它模型：坚决报错，不跨服务商乱回退/漏金',
+          '      throw new Error(unsupportedRouteMessage(route));',
+        ],
+        toLines: [
+          '      // 未适配的其它模型（workbuddy / trae / codebuddy 等）：回退到 DeepSeek 官方搜索',
+          '      // （用用户自己的 DEEPSEEK_API_KEY；模型走 DeepSeek 侧默认值，与当前聊天模型无关）。',
+          '      // 原实现是「坚决报错、不跨服务商回退」，但那样换上这几个模型就完全不能用联网搜索；',
+          '      // 改成回退，仍不触碰其它服务商的额度。',
+          '      try {',
+          '        const result = await executeDeepSeekSearch(ctx, query, {',
+          '          maxResults: request.maxResults,',
+          '          signal,',
+          '        });',
+          '        return {',
+          '          sources: Array.isArray(result?.sources) ? result.sources : [],',
+          '          truncated: result?.truncated === true,',
+          '        };',
+          '      } catch (error) {',
+          '        if (isNoSourcesError(error)) return { sources: [], truncated: false };',
+          '        throw error;',
+          '      }',
+        ],
+      },
+      {
+        file: 'deepseek.js',
+        from: '    const credPath = join(homedir(), ".dsh", ".credentials.yaml");',
+        to: '    const envHome = process.env.DSH_HOME ?? process.env.JACKDSH_HOME; const baseDir = envHome && String(envHome).trim() ? String(envHome).trim() : join(homedir(), ".dsh"); const credPath = join(baseDir, ".credentials.yaml");',
+      },
+    ],
+  },
 ]
 
 /**
@@ -419,14 +464,22 @@ function applyPluginRuntimePatches(name, dir) {
       continue
     }
     const text = readFileSync(file, 'utf8')
-    if (text.includes(edit.to)) continue // 幂等
-    if (!text.includes(edit.from)) {
+    // 支持 fromLines/toLines：按文件自身行尾拼接（上游文件可能是 CRLF，LF 锚点会全部失配）
+    const EOL = text.includes('\r\n') ? '\r\n' : '\n'
+    const from = edit.fromLines ? edit.fromLines.join(EOL) : edit.from
+    const to = edit.toLines ? edit.toLines.join(EOL) : edit.to
+    if (from === undefined || to === undefined) {
+      console.warn(`  ⚠️ 插件补丁缺少 from/to: ${name}/${edit.file}`)
+      continue
+    }
+    if (text.includes(to)) continue // 幂等
+    if (!text.includes(from)) {
       console.warn(
-        `  ⚠️ 插件补丁未命中（上游结构可能已变）: ${name}/${edit.file} ← ${JSON.stringify(edit.from.slice(0, 48))}`,
+        `  ⚠️ 插件补丁未命中（上游结构可能已变）: ${name}/${edit.file} ← ${JSON.stringify(from.slice(0, 48))}`,
       )
       continue
     }
-    writeFileSync(file, text.replace(edit.from, edit.to))
+    writeFileSync(file, text.replaceAll(from, to))
     applied += 1
   }
   if (applied > 0) {
