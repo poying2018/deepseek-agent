@@ -2,6 +2,11 @@
 ;    源码会直接报 `Bad text encoding` 并中断打包（已实测）。改完用
 ;    `node -e "..."` 或编辑器确认 BOM 还在；实在不想管，就把注释全改成英文。
 ;
+; ⚠️ 整份文件必须包在 `!ifndef BUILD_UNINSTALLER` 里：electron-builder 会把同一份
+;    include 也带进**卸载器**那一遍编译，而卸载器的 .onInit 走的是 BUILD_UNINSTALLER
+;    分支、不会展开 customInit → 这里声明的变量就成了「声明了但没人用」，
+;    makensis 报 warning 6001，而 electron-builder 用 -WX（警告即错误）→ 整包构建失败。
+;
 ; ────────────────────────────────────────────────────────────────────────────
 ;  智能识别已有安装位置（安装器默认目录 = 已有安装目录，直接覆盖安装）
 ;
@@ -25,6 +30,7 @@
 ;    4. 候选目录必须真实存在且含主程序 exe，才写成 $INSTDIR 默认值。
 ; ────────────────────────────────────────────────────────────────────────────
 
+!ifndef BUILD_UNINSTALLER
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
@@ -142,3 +148,4 @@ Var /GLOBAL LJANX_OPT
 
   ljanx_custominit_done:
 !macroend
+!endif ; !ifndef BUILD_UNINSTALLER
