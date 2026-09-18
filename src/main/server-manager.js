@@ -355,7 +355,7 @@ export class ServerManager {
       }
     }
 
-    const groups = [this.pickerPatchLines(), clientHmrPatchLines()].filter((group) => group.length > 0)
+    const groups = [this.pickerPatchLines(), clientHmrPatchLines(), webCapabilityPatchLines()].filter((group) => group.length > 0)
     const managed = groups.flatMap((group, index) => (index === 0 ? group : ['', ...group]))
     const next = spliceManagedRegion(raw, managed)
 
@@ -692,6 +692,45 @@ function clientHmrPatchLines() {
     '# 禁用官方客户端热重载 SSE 通道，彻底避免单端口多标签连接耗尽。',
     '- id: client-hmr',
     '  disabled: true',
+  ]
+}
+
+/**
+ * web 能力行的常驻启用补丁（`dsh-web` 默认集成）。
+ *
+ * ── 为什么不是「加进 profile bundles」────────────────────────────────────
+ * `@deepseek-ai/dsh-web` 是 `ctx.web` 的 Service 基类（`WebRuntime extends
+ * Service`），不是插件包：它的 package.json 没有 `dsh.bundle` 字段。DSH 的
+ * profile 组装器（dsh-app-boot 的 loadProfileDirectory）对 bundles 清单里
+ * 每一项都强制要求 `dsh.bundle`，缺了就整个内核启动失败：
+ *   Error: profile bundle "@deepseek-ai/dsh-web" declares no dsh.bundle
+ * 所以 dsh-web 只能作为 cordis 行（host 侧能力），由 dsh-base 提供、由这里
+ * 的补丁行保证启用状态。
+ *
+ * ── 本发行版为什么要显式启用 ───────────────────────────────────────────
+ * 上游 dsh-base 已挂好 `web` / `web-search-deepseek` / `web-fetch-http` 三行，
+ * 但 dsh-web-app（web 前端产品形态）会按「web 应用」的假设改动它们（如把
+ * tool-web 交给各 agent preset 逐预设组装）。本发行版是原生 Electron 应用，
+ * 不依赖 web 前端组装，因此在 JackDSH 托管区显式声明：能力 seam 与匿名
+ * 公共 HTTP(S) 抓取 provider 常驻启用，避免上游组合变化把能力行关掉。
+ * 搜索 provider 由 dsh-web-search-follow 插件的 follow-search 接管
+ * （合成的 config.searchProvider 保持不动，补丁只改 disabled）。
+ *
+ * @returns {string[]} 托管区里的 web 能力补丁行
+ */
+function webCapabilityPatchLines() {
+  return [
+    '# dsh-web：ctx.web 搜索/抓取能力（内核侧 host 行，不是前端插件）。',
+    '# 本发行版是原生 Electron 应用，不依赖 web 前端组装，故显式常驻启用：',
+    '#   · web            —— ctx.web 能力 seam（搜索 + 抓取统一入口）',
+    '#   · web-fetch-http —— 匿名公共 HTTP(S) 抓取 provider',
+    '# 搜索 provider 由 dsh-web-search-follow 的 follow-search 接管。',
+    '- id: web',
+    "  name: '@deepseek-ai/dsh-web'",
+    '  disabled: false',
+    '- id: web-fetch-http',
+    "  name: '@deepseek-ai/dsh-web-fetch-http'",
+    '  disabled: false',
   ]
 }
 
