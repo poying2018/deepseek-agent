@@ -549,6 +549,44 @@ function setupSettingsNavScroll(win) {
   injectCssOncePerDocument(win, scrollCss)
 }
 
+/**
+ * 会话头部工具行的溢出兜底（所有平台通用）。
+ *
+ * 症状：打开右侧边栏（文件 / 任务管理）后，会话头部那一排按钮互相重叠，
+ * 尾部按钮还被右侧面板盖掉一半。
+ *
+ * 实测根因（2026-09-19，在运行中的实例里量的，不是推断）：承载
+ * `conversation.session.header.actions` 槽位的行容器（dsh-client-ui-conversation 的
+ * `_heroWorkspaceRow` / `_workspaceRow` / `_titleRow`）是
+ * `display:flex; flex-wrap:nowrap; overflow:visible`。插件往那一排里挂的按钮一多
+ * （撤销 / 恢复 / 快照 / 对话撤回 …），内容就超出容器：造拥挤态实测容器 384px、
+ * 内容 470px，最右按钮伸到 x=526，而中间列右边界是 442 ⇒ **横向溢出 84px**，
+ * 直接伸进右侧面板的浮层下面（浮层盖在上面，看着就是"按钮重叠"）。
+ *
+ * 修法：让这一行换行而不是横向溢出。实测加 `flex-wrap:wrap` 后内容收回 384px、
+ * 最右元素回到 x=362（列内还有 80px 余量），行高 28 → 56（两行），重叠消失。
+ *
+ * 为什么放宿主注入层而不是改插件或内核包：这一排的宽度由**装了几个插件**决定，
+ * 补丁打在某个插件上只是碰巧；宿主兜底对任意插件组合都成立，也不动第三方源码。
+ */
+function setupConversationHeaderWrap(win) {
+  const wrapCss = `
+    [class*="_heroWorkspaceRow"],
+    [class*="_workspaceRow"],
+    [class*="_titleRow"] {
+      flex-wrap: wrap !important;
+      row-gap: 4px !important;
+      min-width: 0 !important;
+    }
+    [class*="_heroWorkspaceRow"] > *,
+    [class*="_workspaceRow"] > *,
+    [class*="_titleRow"] > * {
+      min-width: 0 !important;
+    }
+  `
+  injectCssOncePerDocument(win, wrapCss)
+}
+
 function setupApplicationMenu(win) {
   const isMac = process.platform === 'darwin'
   const template = [
@@ -724,6 +762,7 @@ async function createWindow() {
 
   setupMacWindowDrag(mainWindow)
   setupSettingsNavScroll(mainWindow)
+  setupConversationHeaderWrap(mainWindow)
   setupApplicationMenu(mainWindow)
 
   // 网页底座自带 <title>DeepSeek Harness</title>，不拦就会顶掉窗口标题，
