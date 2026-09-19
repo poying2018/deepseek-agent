@@ -18,6 +18,19 @@ ui-conversation:
 dsh-better-sidebar:
   workspaceFence: false
 
+# 内置失控轮次看门狗 dsh-runaway-guard：默认即可用，阈值全在插件里取默认值。
+# 需要改再摘掉注释（值是按需放宽/收紧，0 与负数会被夹回可用区间）：
+#   maxSteps    单轮步数软阈值，到了就先让模型收尾（默认 25）
+#   graceSteps  收尾指令之后额外放行的步数，用完就关轮（默认 4）
+#   repeatLimit 同一条工具调用（名字+参数完全一样）连续出现多少次算原地打转（默认 3）
+#   repeatHard  连续重复到多少次直接关轮（默认 5，且自动 ≥ repeatLimit+1）
+#   enabled     false 整体停用；也可以设环境变量 DSH_RUNAWAY_GUARD=0
+# dsh-runaway-guard:
+#   maxSteps: 25
+#   graceSteps: 4
+#   repeatLimit: 3
+#   repeatHard: 5
+
 # 默认主力模型：Gemini 3.8 Flash (High 深度思考)
 agent-default-model:
   provider: gemini-oauth

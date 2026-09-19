@@ -11,6 +11,7 @@
     "status:plugins": "node scripts/scan-plugins-status.mjs",
     "check:picker": "node scripts/check-picker-patch.mjs",
     "check:plugins": "node scripts/check-plugin-peers.mjs",
+    "check:guard": "node scripts/check-runaway-guard.mjs",
     "check:startup": "node scripts/check-startup-readiness.mjs",
     "check:dist": "node scripts/verify-dist-compose.mjs",
     "release:check": "node scripts/scan-plugins-status.mjs",

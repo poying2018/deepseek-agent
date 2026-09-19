@@ -17,7 +17,8 @@ export const OWN_PLUGINS = [
   'dsh-app-badge',
   'dsh-session-navigator',
   'dsh-plugin-dashboard',
-  'dsh-web-search-follow',  'dsh-better-sidebar',
+  'dsh-web-search-follow',
+  'dsh-better-sidebar',
   'dsh-paste-path',
   'dsh-autostart',
   // 这两个此前只在 plugins.manifest.yaml 里（会被打进包）却没进本清单，
@@ -35,6 +36,14 @@ export const OWN_PLUGINS = [
   //   · dsh-update-check —— 左下角「检查更新」：查 GitHub Release、显示更新说明、
   //     应用内下载安装包并启动安装程序。
   'dsh-update-check',
+  //   · dsh-runaway-guard —— 单轮失控看门狗。内核没有任何步数上限（dsh-agent-loop
+  //     只有 maxParallelToolCalls），所以失控轮只能靠 agent/pre-step 这道现成的
+  //     waterfall 拦：超阈值先追加一条 plugin 署名的收尾指令，再放行 graceSteps 步
+  //     仍不收就返回 {kind:'reject'}，让 turn/end 以 'blocked' 干净结束。
+  //     零依赖（不 import @deepseek-ai/*），只读 payload 与 session.ownEvents()。
+  //     阈值可在 settings.yaml 的 dsh-runaway-guard 段覆盖，也可用
+  //     DSH_RUNAWAY_GUARD* 环境变量整体关掉（DSH_RUNAWAY_GUARD=0）。
+  'dsh-runaway-guard',
 ]
 
 /**
