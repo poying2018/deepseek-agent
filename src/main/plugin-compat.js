@@ -213,6 +213,33 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: 'dsh-web-restart',
+    desc: '撤掉「底栏压成一行」的改造，回到官方上下两行布局',
+    // 该插件在 slot 收到 wide=true（侧栏展开）时，用 :has(.dwr-wide) 把 _footArea 从官方的
+    // 上下两行改成一行：设置区 flex:1 1 auto + 图标行 flex:none。
+    // 2026-09-19 在真实页面量过这一行的账：_footArea 可用宽 207px，四个 36px 图标固定吃掉
+    // 144px，而设置按钮自然宽约 77px（[齿轮15][gap8][「设置」≈28][左右 padding18]）——
+    // 合计 221px，差 14px。因为设置区是 min-width:0，被压的是它：实测只剩 63px，
+    // 「设置」两个字直接溢出到图标底下（用户报的"还是有遮挡"）。
+    // 撤掉这三条就恢复官方两行：上行「⚙ 设置」整行宽 207px 绰绰有余，下行四个图标。
+    // 侧栏底部因此高约 36px，换来文字不再被压。
+    edits: [
+      {
+        file: 'client.js',
+        fromLines: [
+          "      '[class*=\"_footArea\"]:has(.dwr-wide){flex-direction:row;align-items:center;gap:4px}',",
+          "      '[class*=\"_footArea\"]:has(.dwr-wide) [class*=\"_settingsArea\"]{flex:1 1 auto;width:auto;min-width:0}',",
+          "      '[class*=\"_footArea\"]:has(.dwr-wide) [class*=\"_footerActions\"]{order:2;flex:none;width:auto;align-items:center;justify-content:flex-end}',",
+        ],
+        toLines: [
+          '      // LJANX：这里原本有三条 :has(.dwr-wide) 规则把底栏压成一行，已撤掉。',
+          '      // 一行放不下「齿轮+设置」加四个图标（207px 可用 / 需要 221px），会把「设置」',
+          '      // 文字挤到图标底下。恢复官方上下两行布局，成因与实测数字见补丁表注释。',
+        ],
+      },
+    ],
+  },
 ]
 
 /**
