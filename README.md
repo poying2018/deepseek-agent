@@ -2,7 +2,7 @@
 
 > **DeepSeek Harness 的桌面客户端发行版** —— 开箱即用，无需手动安装 Node.js、配置运行环境或敲命令行。
 >
-> 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 29 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
+> 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 28 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
 
 **当前版本：`1.3.3`**
 
@@ -74,11 +74,10 @@
 | 22 | `dsh-connect-trae` | 把本机已登录的 Trae 账号接成 provider，附只读用量卡片 | npm |
 | 23 | `dsh-damage-pulse` | Token 余额监控：鲸鱼娘待机/扣费动画、峰谷计费、会话费用统计 | [wssfk12138](https://github.com/wssfk12138/dsh-damage-pulse) |
 | 24 | `dsh-undo-savepoint` | 配置与插件代码变更的可回滚快照、一键 SAFE MODE、离线救援 CLI | [lire1131](https://github.com/lire1131/dsh-undo-savepoint) |
-| 25 | `dsh-provider-qoder` | 把 Qoder 订阅账号接成 provider：COSY 签名流式、PAT 安全存储、实时模型目录、企业 VPC | [mo-n](https://github.com/mo-n/dsh-provider-qoder) |
-| 26 | `dsh-dream-skin` | 换肤：8 套 iOS / Linear 式冷调主题 + 弥散光壁纸 + 强调色 + 主题包分享（**默认不启用**） | [RevolutionLA](https://github.com/RevolutionLA/dsh-dream-skin) |
-| 27 | `dsh-client-ui-seaglass` | 玻璃拟态主题：模糊、霜化、圆角、动效均可调（**默认不启用**） | [xiyunyunyun](https://github.com/xiyunyunyun/dsh-client-ui-seaglass) |
-| 28 | `dsh-skin-manager` | 皮肤发现与互斥切换的独立设置页，含「恢复官方外观」（**默认不启用**） | npm |
-| 29 | `dsh-update-check` | 侧栏「检查更新」：查 GitHub Release、展示变更说明、就地下载 | 仓内自带 |
+| 25 | `dsh-dream-skin` | 换肤：8 套 iOS / Linear 式冷调主题 + 弥散光壁纸 + 强调色 + 主题包分享（**默认不启用**） | [RevolutionLA](https://github.com/RevolutionLA/dsh-dream-skin) |
+| 26 | `dsh-client-ui-seaglass` | 玻璃拟态主题：模糊、霜化、圆角、动效均可调（**默认不启用**） | [xiyunyunyun](https://github.com/xiyunyunyun/dsh-client-ui-seaglass) |
+| 27 | `dsh-skin-manager` | 皮肤发现与互斥切换的独立设置页，含「恢复官方外观」（**默认不启用**） | npm |
+| 28 | `dsh-update-check` | 侧栏「检查更新」：查 GitHub Release、展示变更说明、就地下载 | 仓内自带 |
 
 > **另有两条说明**：
 > · `dsh-codex-timeline` 随包分发，但它显式声明「仅验证到内核 0.1.2-alpha.3」，

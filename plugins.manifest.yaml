@@ -147,25 +147,9 @@ plugins:
     repo: https://github.com/lire1131/dsh-undo-savepoint.git
     ref: master
 
-  # Qoder CN adapter（作者 mo-n，MIT）—— 把 Qoder 订阅账号接成 DSH 的 LLM provider：
-  #   · COSY 签名 + WAF 编码流式传输，直连 gateway.qoder.com.cn；
-  #   · PAT（pt-...）通过 Models 页面安全存储、按进程换取短期 job token；
-  #   · 支持公开云（仅需 PAT）和企业 VPC（settings.yaml 里设 llm-qoder.vpcInstance）；
-  #   · 模型目录实时从 /algo/api/v2/model/list 拉取，新增 wire key（如 gmodel → glm-5.2）
-  #     无需插件更新；内置重试由 dsh-llm-retry 统一接管。
-  #
-  # 依赖自检（2026-09-18）：
-  #   · peerDependencies：@deepseek-ai/cordis ^4.0.2（宿主 4.0.2 ✅）、
-  #     @deepseek-ai/dsh-{api-remotes,attachment,client-connection,client-locale,
-  #     client-ui-settings,client-ui-slots,credentials,invariants,llm,settings,web}
-  #     >=0.1.2-rc.1 <0.2（本发行版 0.1.5-rc.2 全部落在此区间 ✅）；
-  #   · dependencies：@deepseek-ai/schemastery 3.18.1（宿主自带 ✅）；
-  #   · 需搭配 @deepseek-ai/dsh-llm-retry 启用重试策略（已在内核清单里 ✅）。
-  #
-  # 安装后需：Settings → Models → Add provider → qoder-cn，粘贴 PAT。
-  - name: dsh-provider-qoder
-    repo: https://github.com/mo-n/dsh-provider-qoder.git
-    ref: main
+  # 注：原先内置的 Qoder provider（dsh-provider-qoder，作者 mo-n）已于 2026-09-19 移出
+  # 发行版 —— 它是别人账号体系的接入适配，随包分发等于替一个我们不改的插件背书默认启用。
+  # 需要它的用户仍可在应用内从 npm 自行安装（dsh-provider-qoder），profile 里已装的不动。
   #
   # ── 换肤三件套（随包分发、默认不启用，见 own-plugins.js 的 OPT_IN_PLUGINS）─────
   # 三个都钉 npm 发行包而不是仓库：上游仓库只有源码（皮肤资产/主题包在发布时才
