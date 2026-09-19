@@ -454,10 +454,18 @@ for (const { entry, inRepo } of pluginSources) {
   }
 }
 
-// 核心设置中心补丁：修复设置页侧边栏超出视口无法滚动
-const coreSettingsDir = join(rootDir, 'node_modules/@deepseek-ai/dsh-client-ui-settings-general')
-if (existsSync(coreSettingsDir)) {
-  applyPluginRuntimePatches('@deepseek-ai/dsh-client-ui-settings-general', coreSettingsDir)
+// 内核自带包（非插件）的兼容补丁，构建期打一次、随 asar 一起发出去：
+//  · dsh-client-ui-settings-general  —— 修设置页侧边栏超出视口无法滚动
+//  · dsh-api-session-controller      —— 默认隐藏未鉴权第三方 provider 的模型
+//    （宿主壳在启动内核时通过 LJANX_HIDDEN_MODELS 环境变量喂名单）
+for (const corePkg of [
+  '@deepseek-ai/dsh-client-ui-settings-general',
+  '@deepseek-ai/dsh-api-session-controller',
+]) {
+  const coreDir = join(rootDir, 'node_modules', ...corePkg.split('/'))
+  if (existsSync(coreDir)) {
+    applyPluginRuntimePatches(corePkg, coreDir)
+  }
 }
 
 // ---- [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)

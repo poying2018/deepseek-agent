@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS, OPT_IN_PLUGINS } from './own-plugins.js'
 import { applyCompatPatchesToTree, applyPluginRuntimePatches } from './plugin-compat.js'
+import { computeHiddenProviders } from './model-visibility.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -362,17 +363,42 @@ export class ServerManager {
       console.warn(`[ServerManager] 第三方插件兼容补丁执行异常（不阻断启动）: ${e?.message ?? e}`)
     }
 
-    // 核心设置中心兼容补丁：修掉大量插件时设置侧栏超出视口无法滚动
+    // 内核自带包（非插件）的兼容补丁：这些包住在 <resources>/node_modules 里，
+    // 不属于 profile，所以不能靠 applyCompatPatchesToTree 扫到，必须显式点名。
+    //  · dsh-client-ui-settings-general    —— 修「插件多时设置侧栏无法滚动」
+    //  · dsh-api-session-controller        —— 修「未鉴权的第三方模型仍出现在选择器里」
+    //
+    // ⚠️ 目录解析（2026-09-19 复核）：内核子进程是用 `NODE_PATH` 找这些包的，而
+    // NODE_PATH 实际落在 **app.asar 内部**（`<resources>/app/node_modules` 并不存在，
+    // 见 start() 里的 nodePath 判定）。所以：
+    //   · 安装版：内核读的是 **asar 里的那份**，而 asar 是只读归档 —— 运行期写不进去，
+    //     真正的落地点是 prepare-bundle 的**构建期**补丁（它写的是仓库 node_modules，
+    //     随后被 electron-builder 打进 asar，已验证有效）。
+    //   · 开发态：`__dirname/../../node_modules` 就是仓库目录，可写、立即生效。
+    // 这里对**所有存在的候选**都试一遍：开发态与 `<resources>/node_modules` 能改的
+    // 就改，asar 那份写失败就静默跳过（build 期已经处理过）。
     try {
-      const nodeModulesCandidate = join(this.runtimePath, '../app/node_modules')
-      const fallbackNodeModules = join(__dirname, '../../node_modules')
-      const nodeModulesDir = existsSync(nodeModulesCandidate) ? nodeModulesCandidate : fallbackNodeModules
-      const coreSettingsDir = join(nodeModulesDir, '@deepseek-ai', 'dsh-client-ui-settings-general')
-      if (existsSync(coreSettingsDir)) {
-        applyPluginRuntimePatches('@deepseek-ai/dsh-client-ui-settings-general', coreSettingsDir, console)
+      const coreCandidates = [
+        process.resourcesPath ? join(process.resourcesPath, 'node_modules') : '',
+        join(this.runtimePath, '../app/node_modules'),
+        join(__dirname, '../../node_modules'),
+      ].filter(Boolean)
+      for (const pkg of [
+        '@deepseek-ai/dsh-client-ui-settings-general',
+        '@deepseek-ai/dsh-api-session-controller',
+      ]) {
+        for (const root of coreCandidates) {
+          const dir = join(root, ...pkg.split('/'))
+          if (!existsSync(join(dir, 'package.json'))) continue
+          try {
+            applyPluginRuntimePatches(pkg, dir, console)
+          } catch {
+            // asar 只读等原因写不进去：构建期补丁已覆盖，不算错误
+          }
+        }
       }
     } catch (e) {
-      console.warn(`[ServerManager] 核心设置包补丁执行异常: ${e?.message ?? e}`)
+      console.warn(`[ServerManager] 内核包补丁执行异常: ${e?.message ?? e}`)
     }
   }
 
@@ -536,6 +562,19 @@ export class ServerManager {
     } catch {}
 
     const augmentedPath = this.resolveAugmentedPath()
+
+    // 「未鉴权的第三方模型默认隐藏」名单：在启动内核**之前**算好，经环境变量交给内核
+    // （内核侧过滤见 plugin-compat.js 里对 @deepseek-ai/dsh-api-session-controller 的补丁）。
+    // 放在这里而不是运行时配置文件：内核的主机侧读不了我们新加的配置文件格式，
+    // 环境变量是它本来就有的输入通道，改完重启即生效，不需要额外 IPC。
+    const visibility = computeHiddenProviders({ dshHome: this.dshHome })
+    if (visibility.hidden.length > 0) {
+      console.log(
+        `[ServerManager] 模型选择器将隐藏未鉴权的第三方 provider: ${visibility.hidden.join(', ')}` +
+          `（已鉴权：${visibility.authenticated.join(', ') || '无'}）`,
+      )
+    }
+
     const env = {
       ...process.env,
       PATH: augmentedPath,
@@ -550,6 +589,9 @@ export class ServerManager {
       DSH_DESKTOP_ISOLATED: '1',
       NODE_ENV: 'production',
       LJANX_VERSION: appVersion,
+      // 未鉴权第三方 provider 名单（逗号分隔）。内核侧据此过滤模型选择器；
+      // 空串 = 谁都不隐藏（等价上游行为）。
+      LJANX_HIDDEN_MODELS: visibility.hidden.join(','),
       // ⚠️ 旧品牌环境变量别名（jackdsh → ljanx 改名遗留）：上游插件还没跟进改名，
       // 例如 dsh-plugin-dashboard 读 JACKDSH_VERSION、dsh-today 读
       // JACKDSH_WORKSPACE_ROOT / JACKDSH_PORTABLE_ROOT。不保留旧名的话它们会静默

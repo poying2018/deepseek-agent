@@ -10,8 +10,85 @@
  * 两条路径都必须幂等：已打过就跳过，锚点没命中只告警不中断（上游改结构时仍能起用，
  * 只是需要人工同步补丁）。放在 src/main/ 是因为 electron-builder 的 files 只收 src/**。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+
+/**
+ * 补丁执行结果的「戳记」文件名（放在插件目录内，随插件一起被删/被更新覆盖）。
+ *
+ * ── 为什么需要它（启动速度）────────────────────────────────────────────────
+ * 这条补丁链是**每次启动**都要跑的（第三方插件构建期看不到，只能运行期补）。
+ * 而幂等判断原先是「把目标文件整份读进来、看有没有已经补过」，于是每次冷启动都要
+ * 主线程同步读几 MB 的 JS —— 例如 seaglass / dream-skin 的 client.js 各 350～390KB，
+ * 加上内核那两个包，光是"确认已经打过"就要读掉一两兆。这些读都发生在**内核 spawn
+ * 之前**，直接叠进用户感知的启动时间里。
+ *
+ * 戳记把「读文件」降级成「stat 文件」：
+ *   · 记下每条 edit 的签名（补丁定义 + 文件相对路径）与每个目标文件的 size/mtimeMs；
+ *   · 下次启动若签名一致、且所有文件 size+mtimeMs 都没变 ⇒ 直接跳过，**一个字节都不读**；
+ *   · 任一文件变了（插件升级/被手改）⇒ 走原来的完整校验路径，行为不变。
+ * 安全性：戳记只是"省一次读"，判断依据仍是文件自身的 size+mtime；戳记丢失/损坏时
+ * 回退到读文件校验，不会漏打补丁。
+ */
+const STAMP_FILE = '.ljanx-compat-stamp.json'
+
+/** 把一条 entry 的补丁定义折叠成短签名，用于判断"补丁表变过没有"。 */
+function entrySignature(entry) {
+  const h = createHash('sha1')
+  h.update(entry.plugin)
+  for (const edit of entry.edits) {
+    h.update(edit.file)
+    h.update(edit.fromLines ? edit.fromLines.join('\n') : String(edit.from ?? ''))
+    h.update(edit.toLines ? edit.toLines.join('\n') : String(edit.to ?? ''))
+  }
+  return h.digest('hex').slice(0, 16)
+}
+
+/** 目标文件的 `size:mtimeMs` 指纹（读不到返回 null，调用方据此放弃跳过）。 */
+function fileFingerprint(dir, relPath) {
+  try {
+    const st = statSync(join(dir, relPath))
+    return `${st.size}:${Math.trunc(st.mtimeMs)}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 读取戳记并判断「可以整段跳过吗」。
+ * @returns {{ skip: boolean, files: Record<string, string>, sig: string }}
+ */
+function readStamp(dir, entry) {
+  const sig = entrySignature(entry)
+  let stamp = null
+  try {
+    stamp = JSON.parse(readFileSync(join(dir, STAMP_FILE), 'utf8'))
+  } catch {
+    return { skip: false, files: {}, sig }
+  }
+  if (!stamp || stamp.sig !== sig || typeof stamp.files !== 'object' || stamp.files === null) {
+    return { skip: false, files: {}, sig }
+  }
+  // 逐个核对指纹：任一不一致（或读不到）就不跳过
+  const files = {}
+  for (const edit of entry.edits) {
+    const fp = fileFingerprint(dir, edit.file)
+    if (fp === null) return { skip: false, files: {}, sig } // 目标文件不存在 ⇒ 让它走正常流程去告警
+    files[edit.file] = fp
+    if (stamp.files[edit.file] !== fp) return { skip: false, files: {}, sig }
+  }
+  return { skip: true, files, sig }
+}
+
+/** 写入戳记（失败无所谓：下次只是多读一次文件）。 */
+function writeStamp(dir, sig, files) {
+  try {
+    writeFileSync(join(dir, STAMP_FILE), JSON.stringify({ sig, files, at: new Date().toISOString() }) + '\n')
+  } catch {
+    /* 只读目录（如 asar 内）拿不到写权限，忽略 */
+  }
+}
 
 /**
  * 逐插件的兼容补丁清单。每条 edits 是一次「行内字符串整段替换」，
@@ -20,27 +97,34 @@ import { join } from 'node:path'
 export const PLUGIN_RUNTIME_PATCHES = [
   {
     plugin: 'dsh-codearts-auth',
-    desc: '登录统一走系统浏览器，不再开应用内窗口',
-    // 「登录时同时弹出两个浏览器」的两处根因：
-    //  ① 客户端 lib/client/jet-hub.js 用 window.open(loginUrl) 开登录页。宿主主进程的
-    //     windowOpenHandler 会把 https 转给系统浏览器并拒绝应用内窗口 → window.open
-    //     返回空 → 插件随后 `window.location.href = loginUrl` 兜底，把**应用主窗口**整页
-    //     导航成第三方登录页（用户看到「应用里又弹了个浏览器」）。
-    //  ② codearts 的宿主登录流程（lib/login.js）自己也会用系统浏览器打开一次，而客户端
-    //     还会再开一次 → 系统浏览器两个标签页。（buddy/workbuddy 的宿主传的是空 opener，
-    //     只靠客户端开，所以不能无脑删客户端的 window.open。）
-    // 改法：客户端不再导航主窗口；宿主那一次让给客户端统一开（客户端那次也会被主进程
-    // 转成系统浏览器），于是任何 provider 都恰好只开一个系统浏览器。
+    desc: '登录只开一个系统浏览器（抑制宿主那一次重复打开）',
+    // ── 为什么要抑制宿主那次打开 ────────────────────────────────────────────
+    // 该插件三个 provider 里有两条登录路径：
+    //   · buddy / workbuddy —— 宿主流程**已经**传 `openBrowser: () => {}`，
+    //     只靠客户端 `window.open(loginUrl)` 开一次（主进程会把它转成系统浏览器）；
+    //   · codearts / lobsterai —— 宿主 `startLogin()` 内部默认**自己再开一次**
+    //     （lib/login.js: `options.openBrowser ?? openBrowser`），而客户端同样会
+    //     `window.open` 一次 ⇒ 系统浏览器被打开**两个**标签页。
+    // 用户在其中「先点到」的那一个里完成授权时，回调可能落在另一个流程的 state 上，
+    // 于是轮询永远等不到 done，界面停在「等待授权」——表现为「CodeArts 用不了」。
+    // 改法：给 codearts / lobsterai 的宿主 startLogin 传空 opener，让打开登录页这件事
+    // 完全由客户端负责（客户端那次仍会被主进程 setWindowOpenHandler 转成系统浏览器）。
+    //
+    // ⚠️ 历史遗留说明（2026-09-19 修）：本条原先锚的是
+    //     `const loginResult = await codearts.login({ refName, accountId: id, pool });`
+    //   上游 0.1.x 之后把阻塞式 `login()` 换成了两步式 `startLogin()`（先拿 loginUrl
+    //   立即返回、后台再等回调），旧锚点**再也匹配不到**，补丁变成静默空转 —— 这正是
+    //   「双浏览器」问题复发、进而 CodeArts 无法登录的根因。现在锚当前结构。
     edits: [
       {
-        file: 'lib/client/jet-hub.js',
-        from: 'window.location.href = loginUrl;',
-        to: 'void 0;/* LJANX: 不把应用窗口导航成登录页，登录页统一交给系统浏览器 */',
+        file: 'lib/jet-hub-rpc.js',
+        from: 'const started = await codearts.startLogin({ refName });',
+        to: 'const started = await codearts.startLogin({ refName, openBrowser: () => { } });/* LJANX: 登录页交给客户端开一次，宿主不再重复开 */',
       },
       {
         file: 'lib/jet-hub-rpc.js',
-        from: 'const loginResult = await codearts.login({ refName, accountId: id, pool });',
-        to: 'const loginResult = await codearts.login({ refName, accountId: id, pool, openBrowser: () => { } });',
+        from: 'const started = await lobsterai.startLogin({ refName });',
+        to: 'const started = await lobsterai.startLogin({ refName, openBrowser: () => { } });/* LJANX: 同 codearts，避免双浏览器 */',
       },
     ],
   },
@@ -278,6 +362,113 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: 'dsh-client-ui-seaglass',
+    desc: 'GPU 友好默认：降低玻璃模糊半径、关掉纯装饰性常驻动画',
+    // ── 为什么这是「主题插件 GPU 过高」的主因 ────────────────────────────────
+    // 这个主题把整块界面做成磨砂玻璃：每张卡片 / 气泡 / 输入栏都用
+    // `backdrop-filter: blur(var(--dsh-aqua-blur))`，默认 store 里 blur = 20px。
+    // 背后又是一层**全屏动画**（流体 canvas 30fps + 环境层不透明度呼吸 + 水母/气泡/
+    // 浮游生物五组 infinite 动画）。backdrop-filter 必须对「它下面每一帧的内容」
+    // 重新采样，所以「大面积 blur × 一直在动的背景」是集成显卡上最贵的一种组合：
+    // 每帧都要重做整屏高斯模糊，GPU 占用自然居高不下。
+    //
+    // 三处改动，都只动「默认值」，用户在设置页里改过的值不受影响：
+    //  ① blur 20 → 12：与 CSS 里的 fallback 值（14）大致对齐，观感几乎不变，
+    //     但高斯模糊的采样成本大致按半径平方下降；
+    //  ② critters 默认关：水母/气泡/浮游生物是五组 **infinite** 的 transform/opacity
+    //     常驻动画，纯装饰、不承载信息，却是永不停止的合成负担；
+    //  ③ 环境层（[data-dsh-aqua-ambient]，position:fixed; inset:0）的 `breathe`
+    //     动画改为 none：在**全屏图层**上做不透明度渐变的代价是整屏重绘，
+    //     而它的视觉收益只有 0.86→1 的轻微呼吸感。
+    // 想要原来的观感，把设置页里对应滑块调回去即可。
+    edits: [
+      {
+        // store 初值（用户没改过时的取值）
+        file: 'lib/client.js',
+        fromLines: ['\t\t\tblur: 20,', '\t\t\tfrost: 7,'],
+        toLines: ['\t\t\tblur: 12,/* LJANX GPU：20→12，降低 backdrop-filter 采样成本 */', '\t\t\tfrost: 7,'],
+      },
+      {
+        file: 'lib/client.js',
+        fromLines: ['\t\t\tcritters: true,'],
+        toLines: ['\t\t\tcritters: false,/* LJANX GPU：水母/气泡/浮游生物为纯装饰常驻动画，默认关 */'],
+      },
+      {
+        // 设置页读的默认表（与 store 初值必须一致，否则「恢复默认」会把 blur 抬回 20）
+        file: 'lib/client.js',
+        fromLines: ['const SETTINGS_DEFAULTS = {', '\tmode: "mica",', '\tblur: 20,'],
+        toLines: ['const SETTINGS_DEFAULTS = {', '\tmode: "mica",', '\tblur: 12,'],
+      },
+      {
+        file: 'lib/client.js',
+        fromLines: ['\twhale: true,', '\tcritters: true,'],
+        toLines: ['\twhale: true,', '\tcritters: false,'],
+      },
+      {
+        file: 'lib/client.js',
+        from: 'animation: dsh-aqua-breathe 9s var(--ds-ease-in-out) infinite alternate;',
+        to: 'animation: none;/* LJANX GPU：全屏环境层的不透明度动画会让合成器逐帧重绘整屏 */',
+      },
+    ],
+  },
+  {
+    plugin: 'dsh-dream-skin',
+    desc: 'GPU 友好默认：玻璃模糊半径 14 → 10',
+    // 同 seaglass 的成因：玻璃卡片全部走 `filter/backdrop-filter: blur()`，默认半径 14。
+    // 这个插件没有常驻动画，开销集中在「大面积模糊 × 滚动/流式输出时背景在变」，
+    // 因此只把半径收到 10（仍在"磨砂"范围内，观感差异很小）。
+    // 这是 DEFAULT_* 常量，用户在设置页里调过的值存在 localStorage，不受影响。
+    edits: [
+      {
+        file: 'lib/client.js',
+        from: 'const DEFAULT_GLASS_BLUR = 14;',
+        to: 'const DEFAULT_GLASS_BLUR = 10;/* LJANX GPU：14→10，降低大面积 backdrop-filter 的采样成本 */',
+      },
+    ],
+  },
+  {
+    plugin: '@deepseek-ai/dsh-api-session-controller',
+    desc: '默认隐藏未完成鉴权的第三方 provider 的模型（选择器可见性过滤）',
+    // ── 问题 ────────────────────────────────────────────────────────────────
+    // 模型选择器的目录由**宿主**这段 buildModelCatalog() 组装：它遍历
+    // `ctx.llm.listProviders()`，把每个**已注册适配器**的 provider 都变成一个 group。
+    // 也就是说，只要插件装上了、适配器注册了，它的模型就会出现在选择器里 ——
+    // **与该 provider 是否真的登录过无关**。用户没登录过 trae/grok/gemini/codearts 时，
+    // 列表里照样能看到一堆选了也发不出消息的「幽灵模型」。
+    //
+    // ── 改法 ────────────────────────────────────────────────────────────────
+    // 在这里按 provider id 过滤掉「宿主壳判定为未鉴权」的那些 group。名单由 Electron
+    // 壳每次启动时算出（src/main/model-visibility.js，依据是本机账号池与凭据文件），
+    // 经环境变量 LJANX_HIDDEN_MODELS 传进内核 —— 不读文件、不额外依赖，重启即生效。
+    // 三条边界：
+    //   · 环境变量为空串时行为与上游**完全一致**（条件里 `__ljanxHidden.size === 0` 短路）；
+    //   · 当前默认模型所属的 provider 永远保留，否则选择器会「没有选中项」；
+    //   · 只影响选择器可见性。模型目录本就是 advisory（上游注释明写 membership 不控制
+    //     路由与校验），设置页的 Models 页仍列出全部 provider 供用户去登录/配 key。
+    edits: [
+      {
+        file: 'lib/index.js',
+        fromLines: [
+          '\treturn {',
+          '\t\tdefault: { ...defaultSelection },',
+          '\t\troutableProviders: providers.map((provider) => provider.id),',
+          '\t\tgroups: catalog.flatMap((item) => item.kind === "group" ? [item.group] : []).filter((group) => group.models.length > 0),',
+        ],
+        toLines: [
+          '\t// LJANX：默认隐藏「未完成鉴权」的第三方 provider 的模型（名单由宿主壳经',
+          '\t// LJANX_HIDDEN_MODELS 传入）。只影响选择器可见性（模型目录本就是 advisory），',
+          '\t// 不改路由与请求校验；为空串时行为与上游完全一致；当前默认模型所属 provider',
+          '\t// 永远保留，避免选择器出现「没有选中项」。',
+          '\tconst __ljanxHidden = new Set(String(process.env.LJANX_HIDDEN_MODELS ?? "").split(",").map((s) => s.trim()).filter(Boolean));',
+          '\treturn {',
+          '\t\tdefault: { ...defaultSelection },',
+          '\t\troutableProviders: providers.map((provider) => provider.id),',
+          '\t\tgroups: catalog.flatMap((item) => item.kind === "group" ? [item.group] : []).filter((group) => group.models.length > 0 && (__ljanxHidden.size === 0 || group.id === defaultSelection.provider || !__ljanxHidden.has(group.id))),',
+        ],
+      },
+    ],
+  },
 ]
 
 /**
@@ -292,6 +483,12 @@ export function applyPluginRuntimePatches(name, dir, log = console) {
   const entries = PLUGIN_RUNTIME_PATCHES.filter((it) => it.plugin === name)
   if (entries.length === 0) return
   for (const entry of entries) {
+    // ── 快路径（启动速度）────────────────────────────────────────────────
+    // 补丁表没变、且所有目标文件的 size+mtimeMs 与上次处理时一致 ⇒ 上次已经处理过，
+    // 这次连文件都不读，直接跳过。把「每次启动同步读 1~2MB JS」降成「stat 几个文件」。
+    const stamp = readStamp(dir, entry)
+    if (stamp.skip) continue
+
     let applied = 0
     for (const edit of entry.edits) {
       const file = join(dir, edit.file)
@@ -321,6 +518,18 @@ export function applyPluginRuntimePatches(name, dir, log = console) {
     if (applied > 0) {
       log.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（${entry.desc ?? '兼容修复'}）`)
     }
+    // 记下本次处理后的文件指纹，下次启动即可跳过（写不进去也无妨）。
+    const files = {}
+    let fingerprintOk = true
+    for (const edit of entry.edits) {
+      const fp = fileFingerprint(dir, edit.file)
+      if (fp === null) {
+        fingerprintOk = false
+        break
+      }
+      files[edit.file] = fp
+    }
+    if (fingerprintOk) writeStamp(dir, stamp.sig, files)
   }
 }
 
@@ -343,6 +552,9 @@ export function applyCompatPatchesToTree(nodeModulesDir, opts = {}) {
     if (skipSet.has(entry.plugin)) continue
     const dir = join(nodeModulesDir, ...entry.plugin.split('/'))
     if (!existsSync(join(dir, 'package.json'))) continue // 该插件未安装，属正常情况
+    // 戳记命中 ⇒ 已经处理过且文件没变：连 countPatched 的两次读都省掉
+    // （启动期这几 MB 的同步读全在主线程上，正是要削的东西）。
+    if (readStamp(dir, entry).skip) continue
     const before = countPatched(dir, entry)
     applyPluginRuntimePatches(entry.plugin, dir, log)
     if (countPatched(dir, entry) > before) touched.push(entry.plugin)

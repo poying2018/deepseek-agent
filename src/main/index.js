@@ -24,12 +24,19 @@ augmentGlobalPath()
 // 下面这组开关把 GPU 用得更满，并防止后台节流导致插件/计费监控卡顿。
 //  - ignore-gpu-blocklist      ：解除对核显的 blocklist，强制走硬件而非 SwiftShader 软件渲染
 //  - enable-gpu-rasterization  ：把图层光栅化也放到 GPU，降低 CPU 占用（鲸鱼娘动画/滚动更顺）
-//  - 三条 anti-throttle        ：应用失焦/最小化/被遮挡时，渲染进程与后台定时器不被降频，
+//  - disable-background-timer-throttling ：窗口失焦/被遮挡时，后台定时器不被降频到 1fps，
 //                                保证 Token 监控、插件轮询等后台任务持续响应
+//  - disable-renderer-backgrounding      ：渲染进程不被降级为后台优先级，避免长任务期间 UI 卡顿
+//
+// ⚠️ 这里**故意不**开 `disable-backgrounding-occluded-windows`（2026-09-19 移除）：
+// 它会让「被别的窗口完全盖住」的窗口仍被当作可见，于是 requestAnimationFrame 照常推进。
+// 玻璃拟态主题（dsh-client-ui-seaglass 等）在页面上挂了一整屏 30fps 的流体 canvas 和
+// 环境层动画，被遮挡时继续按帧渲染就等于纯烧 GPU —— 而用户根本看不到。
+// 关掉它之后：被遮挡/最小化时渲染停摆（省 GPU/电量），而定时器因上面那条仍不降频，
+// Token 轮询、计费监控不受影响。
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
-app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
 // ── 性能优化：削减 Chromium 后台/空闲 CPU 空转 ──────────────────────────────
@@ -431,9 +438,22 @@ function setupMacWindowDrag(win) {
     }
   `
 
-  const inject = async () => {
+  // CSS 走「每文档一次」的注入（可省掉启动占位页那次无用的样式解析）；
+  // 拖拽条 DOM 由脚本自带 presence 判断，重复执行是幂等的。
+  injectCssOncePerDocument(win, titlebarCss)
+
+  let dragStripDone = ''
+  const injectDragStrip = async () => {
+    if (!win || win.isDestroyed()) return
+    let url = ''
     try {
-      await win.webContents.insertCSS(titlebarCss)
+      url = win.webContents.getURL()
+    } catch {
+      return
+    }
+    if (url.startsWith('data:') || url === dragStripDone) return
+    dragStripDone = url
+    try {
       await win.webContents.executeJavaScript(`
         (() => {
           if (!document.getElementById('ljanx-titlebar-drag-strip')) {
@@ -442,12 +462,47 @@ function setupMacWindowDrag(win) {
             document.body.prepend(strip);
           }
         })()
-      `).catch(() => {})
+      `)
     } catch (err) {
-      console.warn('[DeepSeek Agent] Failed to inject mac titlebar style:', err.message)
+      console.warn('[DeepSeek Agent] Failed to inject mac titlebar drag strip:', err.message)
     }
   }
+  win.webContents.on('dom-ready', injectDragStrip)
+  win.webContents.on('did-finish-load', injectDragStrip)
+}
 
+/**
+ * 把一段 CSS 注入到窗口，**每个文档只注入一次**。
+ *
+ * 为什么要这个包装：原先 dom-ready 与 did-finish-load 两个钩子各自 insertCSS 一次，
+ * 而应用启动期间窗口会先后加载 **两个**文档（启动占位页 → 内核真实页），于是同一段
+ * 规则在真实页面上被插了两遍。规则本身幂等（重复插入只是多一份同内容样式表），
+ * 但每次注入都是一次主线程 + 渲染侧的样式解析，且会触发重新计算样式 —— 属于启动路径
+ * 上不必要的开销。另外启动占位页是 data: URL，根本用不到这些规则，直接跳过。
+ *
+ * @param {Electron.BrowserWindow} win
+ * @param {string} css
+ */
+function injectCssOncePerDocument(win, css) {
+  let lastUrl = ''
+  const inject = async () => {
+    if (!win || win.isDestroyed()) return
+    let url = ''
+    try {
+      url = win.webContents.getURL()
+    } catch {
+      return
+    }
+    // 启动占位页（data:）与「同一文档的第二次钩子」都不重复注入
+    if (url.startsWith('data:')) return
+    if (url === lastUrl) return
+    lastUrl = url
+    try {
+      await win.webContents.insertCSS(css)
+    } catch {
+      // 窗口/文档在这期间被销毁，忽略
+    }
+  }
   win.webContents.on('dom-ready', inject)
   win.webContents.on('did-finish-load', inject)
 }
@@ -491,15 +546,7 @@ function setupSettingsNavScroll(win) {
       padding-right: 12px !important;
     }
   `
-  const inject = async () => {
-    try {
-      await win.webContents.insertCSS(scrollCss)
-    } catch {
-      // 窗口销毁时忽略
-    }
-  }
-  win.webContents.on('dom-ready', inject)
-  win.webContents.on('did-finish-load', inject)
+  injectCssOncePerDocument(win, scrollCss)
 }
 
 function setupApplicationMenu(win) {

@@ -145,4 +145,79 @@ window.addEventListener('DOMContentLoaded', () => {
     },
     { passive: true }
   )
+
+  // ── 窗口不可见时冻结 CSS 动画（GPU / 电量）──────────────────────────────
+  // 主题插件（玻璃拟态那几套）在页面上挂了大量**常驻**动画：全屏环境层的呼吸、
+  // 水母/气泡/浮游生物的无限位移等。窗口被最小化或被完全遮挡时这些动效一个像素都
+  // 看不到，但合成器仍会按帧推进 —— 纯浪费。
+  //
+  // 为什么不能只靠 Chromium 自己节流：本发行版为了保住 Token 轮询等后台任务，
+  // 显式关掉了 renderer/occluded 的后台化（见 src/main/index.js 的 anti-throttle），
+  // 代价就是"看不见时也照画"。这里用 CSS 层面兜回来：不可见时把所有动画暂停
+  // （animation-play-state 只冻结推进，不改布局，恢复后从当前帧继续，无跳变）。
+  const pauseId = 'ljanx-hidden-pause-anim'
+  const syncPauseStyle = () => {
+    const existing = document.getElementById(pauseId)
+    if (document.hidden) {
+      if (existing) return
+      const style = document.createElement('style')
+      style.id = pauseId
+      style.textContent =
+        'html *, html *::before, html *::after { animation-play-state: paused !important; }'
+      document.head.appendChild(style)
+    } else if (existing) {
+      existing.remove()
+    }
+  }
+  document.addEventListener('visibilitychange', syncPauseStyle)
+  syncPauseStyle()
+
+  // ── 新建对话时「点击输入框没反应」的兜底 ────────────────────────────────
+  // 现象：新建会话后点输入框（或输入框周围那圈留白）没有焦点、打不了字。
+  // 根因是命中测试被**更上层的元素**截走了：主题/插件会在内容区叠定位层（spotlight、
+  // 环境层、面板包裹层等），或者输入框外的 composer 内边距本身不转发点击。
+  // 这里的处理很克制，只在两种明确情形下补一次 focus，不拦事件、不改 DOM：
+  //   ① 点击点落在某个输入域（textarea/contenteditable）的矩形**之内**，但事件目标
+  //      却不是它 —— 说明中间隔着不该吃点击的层；
+  //   ② 点击点落在 composer 容器（[data-dsh-inputbar] 或类名含 inputbar 的包裹层）
+  //      的内边距上，目标是容器本身而非输入域。
+  // 已经点在真正的交互元素上时一律放行（return），不干扰正常行为。
+  const INTERACTIVE_SELECTOR =
+    'input, textarea, select, button, a[href], [contenteditable="true"], [role="button"], [role="menuitem"], [role="option"], [role="combobox"], [role="tab"], [role="dialog"], [aria-modal="true"]'
+  const findComposerField = (root) => {
+    const scope = root && root.querySelectorAll ? root : document
+    return scope.querySelector('textarea, [contenteditable="true"]')
+  }
+  window.addEventListener(
+    'pointerdown',
+    (e) => {
+      const target = e.target
+      if (!(target instanceof Element)) return
+      if (target.closest(INTERACTIVE_SELECTOR)) return
+
+      // ① 命中点落在某个输入域矩形内却没打到它
+      const fields = document.querySelectorAll('textarea, [contenteditable="true"]')
+      for (const field of fields) {
+        const r = field.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) continue
+        try {
+          field.focus()
+        } catch {}
+        return
+      }
+
+      // ② 点在 composer 容器留白上（容器是 [data-dsh-inputbar] 或类名含 inputbar 的祖先）
+      const composer =
+        target.closest('[data-dsh-inputbar]') ||
+        target.closest('[class*="inputbar"], [class*="InputBar"], [class*="composer"], [class*="Composer"]')
+      if (!composer) return
+      const field = findComposerField(composer)
+      if (!field) return
+      try {
+        field.focus()
+      } catch {}
+    },
+    true
+  )
 })
