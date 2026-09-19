@@ -88,4 +88,61 @@ window.addEventListener('DOMContentLoaded', () => {
     },
     { capture: true }
   )
+
+  // 设置中心侧边栏滚动防护：当插件众多时保证侧栏列表可顺畅垂直滚动
+  const styleId = 'ljanx-settings-nav-scroll-fix'
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style')
+    style.id = styleId
+    style.textContent = `
+      [role="dialog"] nav,
+      [aria-modal="true"] nav,
+      nav[class*="_nav"] {
+        height: 100% !important;
+        max-height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        box-sizing: border-box !important;
+        padding-bottom: 0 !important;
+      }
+      [role="dialog"] nav > div:first-child,
+      [class*="_navTitle"] {
+        flex: none !important;
+      }
+      [role="dialog"] nav > div:last-child,
+      [class*="_navList"] {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 4px !important;
+        padding-bottom: 22px !important;
+      }
+      [role="dialog"] nav button,
+      [class*="_navCell"] {
+        padding-right: 12px !important;
+      }
+    `
+    document.head.appendChild(style)
+  }
+
+  // 滚轮穿透：在设置侧栏标题等非列表区域滚动时，自动转发给列表
+  window.addEventListener(
+    'wheel',
+    (e) => {
+      const dialog = e.target?.closest?.('[role="dialog"], [aria-modal="true"]')
+      if (!dialog) return
+      const nav = dialog.querySelector('nav')
+      if (!nav || !nav.contains(e.target)) return
+      const navList = nav.querySelector('[class*="navList"]') || nav.lastElementChild
+      if (!navList || navList.contains(e.target)) return
+      navList.scrollTop += e.deltaY
+    },
+    { passive: true }
+  )
 })

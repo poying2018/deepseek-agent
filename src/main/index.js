@@ -452,6 +452,56 @@ function setupMacWindowDrag(win) {
   win.webContents.on('did-finish-load', inject)
 }
 
+/**
+ * 设置中心侧边栏滚动样式兜底注入（所有平台通用）：
+ * 当安装大量插件时，设置中心侧边栏高度超出 modal 面板高度，列表必须能够垂直滚动。
+ */
+function setupSettingsNavScroll(win) {
+  const scrollCss = `
+    [role="dialog"] nav,
+    [aria-modal="true"] nav,
+    nav[class*="_nav"] {
+      height: 100% !important;
+      max-height: 100% !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
+      box-sizing: border-box !important;
+      padding-bottom: 0 !important;
+    }
+    [role="dialog"] nav > div:first-child,
+    [class*="_navTitle"] {
+      flex: none !important;
+    }
+    [role="dialog"] nav > div:last-child,
+    [class*="_navList"] {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      overscroll-behavior: contain !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 4px !important;
+      padding-bottom: 22px !important;
+    }
+    [role="dialog"] nav button,
+    [class*="_navCell"] {
+      padding-right: 12px !important;
+    }
+  `
+  const inject = async () => {
+    try {
+      await win.webContents.insertCSS(scrollCss)
+    } catch {
+      // 窗口销毁时忽略
+    }
+  }
+  win.webContents.on('dom-ready', inject)
+  win.webContents.on('did-finish-load', inject)
+}
+
 function setupApplicationMenu(win) {
   const isMac = process.platform === 'darwin'
   const template = [
@@ -626,6 +676,7 @@ async function createWindow() {
   })
 
   setupMacWindowDrag(mainWindow)
+  setupSettingsNavScroll(mainWindow)
   setupApplicationMenu(mainWindow)
 
   // 网页底座自带 <title>DeepSeek Harness</title>，不拦就会顶掉窗口标题，

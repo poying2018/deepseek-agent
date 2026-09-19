@@ -454,6 +454,12 @@ for (const { entry, inRepo } of pluginSources) {
   }
 }
 
+// 核心设置中心补丁：修复设置页侧边栏超出视口无法滚动
+const coreSettingsDir = join(rootDir, 'node_modules/@deepseek-ai/dsh-client-ui-settings-general')
+if (existsSync(coreSettingsDir)) {
+  applyPluginRuntimePatches('@deepseek-ai/dsh-client-ui-settings-general', coreSettingsDir)
+}
+
 // ---- [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)
 console.log('🧩 [2.5/4] 内核兼容性门禁...')
 // 内核随包发布后没有运行期更新轨道，「不兼容插件自动停用」从旧 core-updater

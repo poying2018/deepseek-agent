@@ -260,6 +260,24 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: '@deepseek-ai/dsh-client-ui-settings-general',
+    desc: '修复设置中心侧边栏在插件众多时超出视口无法滚动的问题',
+    // 根因：官方 SettingsRoot.module.css 里 .VOzbGW_nav 为 flex:none; padding:22px 12px 0;
+    // 且没有 min-height:0 与 overflow 设置，.VOzbGW_navList 也没有独立滚动。
+    // 在安装数十个插件时，侧栏高度轻松超出 modal 面板高度（min(800px, 100vh - 48px)），
+    // 导致下方的大批插件设置入口被 overflow:hidden 强行截断，用户无法滚动查阅。
+    // 改法：.VOzbGW_nav 锁定 height:100% + min-height:0 + overflow:hidden；
+    // 顶部标题 .VOzbGW_navTitle 设 flex:none 固定；
+    // 列表 .VOzbGW_navList 设 flex:1 + min-height:0 + overflow-y:auto，并补充底部 padding:22px。
+    edits: [
+      {
+        file: 'lib/client.js',
+        from: '.VOzbGW_nav{box-sizing:border-box;flex-direction:column;flex:none;gap:18px;width:188px;padding:22px 12px 0;display:flex}.VOzbGW_navTitle{color:var(--dsw-alias-label-primary);padding:0 12px;font-size:16px;font-weight:500;line-height:24px}.VOzbGW_navList{flex-direction:column;gap:4px;display:flex}',
+        to: '.VOzbGW_nav{box-sizing:border-box;flex-direction:column;flex:none;gap:18px;width:188px;padding:22px 12px 0;display:flex;min-height:0;height:100%;overflow:hidden}.VOzbGW_navTitle{flex:none;color:var(--dsw-alias-label-primary);padding:0 12px;font-size:16px;font-weight:500;line-height:24px}.VOzbGW_navList{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;flex-direction:column;gap:4px;display:flex;padding-bottom:22px}',
+      },
+    ],
+  },
 ]
 
 /**

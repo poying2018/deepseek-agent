@@ -4,7 +4,7 @@ import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS, OPT_IN_PLUGINS } from './own-plugins.js'
-import { applyCompatPatchesToTree } from './plugin-compat.js'
+import { applyCompatPatchesToTree, applyPluginRuntimePatches } from './plugin-compat.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -360,6 +360,19 @@ export class ServerManager {
       }
     } catch (e) {
       console.warn(`[ServerManager] 第三方插件兼容补丁执行异常（不阻断启动）: ${e?.message ?? e}`)
+    }
+
+    // 核心设置中心兼容补丁：修掉大量插件时设置侧栏超出视口无法滚动
+    try {
+      const nodeModulesCandidate = join(this.runtimePath, '../app/node_modules')
+      const fallbackNodeModules = join(__dirname, '../../node_modules')
+      const nodeModulesDir = existsSync(nodeModulesCandidate) ? nodeModulesCandidate : fallbackNodeModules
+      const coreSettingsDir = join(nodeModulesDir, '@deepseek-ai', 'dsh-client-ui-settings-general')
+      if (existsSync(coreSettingsDir)) {
+        applyPluginRuntimePatches('@deepseek-ai/dsh-client-ui-settings-general', coreSettingsDir, console)
+      }
+    } catch (e) {
+      console.warn(`[ServerManager] 核心设置包补丁执行异常: ${e?.message ?? e}`)
     }
   }
 

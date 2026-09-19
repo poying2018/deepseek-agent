@@ -82,6 +82,11 @@ window.__ModuleLoader__.load({
       '.duc-right{margin-left:auto}',
       '@keyframes ducSpin{to{transform:rotate(360deg)}}',
       '@media (prefers-reduced-motion: reduce){.duc-btn,.duc-action,.duc-bar-fill{transition:none}.duc-btn.is-busy svg{animation:none}}',
+      // 设置中心侧边栏滚动修复：当插件较多时保证侧边栏可垂直滚动且首部标题不移位
+      '[role="dialog"] nav,[aria-modal="true"] nav,nav[class*="_nav"]{height:100%!important;max-height:100%!important;min-height:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;box-sizing:border-box!important;padding-bottom:0!important}',
+      '[role="dialog"] nav>div:first-child,[class*="_navTitle"]{flex:none!important}',
+      '[role="dialog"] nav>div:last-child,[class*="_navList"]{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;display:flex!important;flex-direction:column!important;gap:4px!important;padding-bottom:22px!important}',
+      '[role="dialog"] nav button,[class*="_navCell"]{padding-right:12px!important}',
     ].join('')
 
     if (typeof document !== 'undefined') {
@@ -94,6 +99,23 @@ window.__ModuleLoader__.load({
         document.head.appendChild(tag)
       }
       tag.textContent = css
+    }
+
+    if (typeof window !== 'undefined' && !window.__dshSettingsNavScrollHooked__) {
+      window.__dshSettingsNavScrollHooked__ = true
+      window.addEventListener(
+        'wheel',
+        (e) => {
+          const dialog = e.target?.closest?.('[role="dialog"], [aria-modal="true"]')
+          if (!dialog) return
+          const nav = dialog.querySelector('nav')
+          if (!nav || !nav.contains(e.target)) return
+          const navList = nav.querySelector('[class*="navList"]') || nav.lastElementChild
+          if (!navList || navList.contains(e.target)) return
+          navList.scrollTop += e.deltaY
+        },
+        { passive: true }
+      )
     }
 
     const copy = {
