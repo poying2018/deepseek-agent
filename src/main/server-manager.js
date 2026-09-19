@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, lstat
 import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS } from './own-plugins.js'
+import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS, OPT_IN_PLUGINS } from './own-plugins.js'
+import { applyCompatPatchesToTree } from './plugin-compat.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -328,6 +329,9 @@ export class ServerManager {
       cleanedBundles.splice(cleanedBundles.indexOf('@deepseek-ai/dsh-base') + 1, 0, '@deepseek-ai/dsh-web-app')
     }
     for (const name of available) {
+      // 随包分发但默认不启用的插件（外观类）只建链接、不进 bundles：
+      // 用户在插件面板打开后由内核自己写进 bundles，之后这里走 available 分支保留。
+      if (OPT_IN_PLUGINS.includes(name) && !cleanedBundles.includes(name)) continue
       if (!cleanedBundles.includes(name)) cleanedBundles.push(name)
     }
     manifest.dsh.profile.bundles = cleanedBundles
@@ -343,6 +347,19 @@ export class ServerManager {
 
     for (const name of available) {
       this.ensurePluginLink(join(profileDir, 'node_modules', name), join(pluginsRoot, name))
+    }
+
+    // 用户从应用内（npm）装的第三方插件构建期看不到，所以同一张兼容补丁表在每次
+    // 启动时也对 profile 再跑一遍（幂等；内置插件走链接、已在构建期打过，跳过）。
+    // 这一步不是可选的优化：任一 loader entry 导入失败会中止整个 web 壳启动，
+    // 一个未适配的社区插件就能让应用白屏，见 plugin-compat.js 的成因说明。
+    try {
+      const touched = applyCompatPatchesToTree(profileNodeModules, { skip: available, log: console })
+      if (touched.length > 0) {
+        console.log(`[ServerManager] 已对应用内安装的第三方插件套用兼容补丁: ${touched.join(', ')}`)
+      }
+    } catch (e) {
+      console.warn(`[ServerManager] 第三方插件兼容补丁执行异常（不阻断启动）: ${e?.message ?? e}`)
     }
   }
 

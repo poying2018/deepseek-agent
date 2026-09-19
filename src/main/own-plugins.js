@@ -73,7 +73,27 @@ export const COMMUNITY_PLUGINS = [
   'dsh-provider-qoder',
 ]
 
+/**
+ * 随包分发但**默认不启用**的插件（装进 runtime/plugins 并建好解析链接，但不写进
+ * dsh.profile.bundles）。用户在插件面板里自己打开，内核会把名字加进 bundles。
+ *
+ * 这一档存在的理由：外观类插件一旦默认挂载就直接改全体用户的界面，而「内置了什么」
+ * 与「默认开什么」是两件事。皮肤三件套因此放这里，而不是 COMMUNITY_PLUGINS。
+ */
+export const OPT_IN_PLUGINS = [
+  // 换肤三件套（各自独立仓库，见 plugins.manifest.yaml 的来源与依赖自检注释）：
+  //   · dsh-dream-skin       —— 8 套 iOS/Linear 式冷调主题 + 壁纸 + 强调色（RevolutionLA）
+  //   · dsh-client-ui-seaglass —— 玻璃拟态主题，可调模糊/霜化/圆角/动效（xiyunyunyun）
+  //   · dsh-skin-manager     —— 皮肤发现与互斥切换的设置页（xiaoyangcheng84-svg）
+  // 三者对宿主 seed 表的依赖已在 0.1.5-rc.2 上逐个核对过；skin-manager 的死引用
+  // 由 plugin-compat.js 的补丁处理（不修它会整壳白屏，不是只坏它自己）。
+  'dsh-dream-skin',
+  'dsh-client-ui-seaglass',
+  'dsh-skin-manager',
+]
+
 export const ALL_BUILTIN_PLUGINS = [
   ...OWN_PLUGINS,
   ...COMMUNITY_PLUGINS,
+  ...OPT_IN_PLUGINS,
 ]

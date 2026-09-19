@@ -166,3 +166,29 @@ plugins:
   - name: dsh-provider-qoder
     repo: https://github.com/mo-n/dsh-provider-qoder.git
     ref: main
+  #
+  # ── 换肤三件套（随包分发、默认不启用，见 own-plugins.js 的 OPT_IN_PLUGINS）─────
+  # 三个都钉 npm 发行包而不是仓库：上游仓库只有源码（皮肤资产/主题包在发布时才
+  # 打进 lib/），npm 包是作者自己构建好的产物，CI 不必猜它的构建链。
+  # 依赖自检（2026-09-19，逐个从 npm 的 lib/client.js 实读 require 列表）：
+  #   内核浏览器 seed 表（dsh-web-frontend 前端产物里的 staticModules）在 0.1.5-rc.2
+  #   上就是：react / react/jsx-runtime / react-dom / react-dom/client /
+  #   @deepseek-ai/cordis / dsh-client-store / dsh-client-ui-slots /
+  #   dsh-client-ui-primitives / dsh-client-ui-dockkit
+  #   · dsh-dream-skin 9.16.0  —— 自带双代 shim（requireSeed try/catch，先 store 后旧名），
+  #     零 dependencies，peer 全部落在宿主区间 ✅
+  #   · dsh-client-ui-seaglass 1.6.7 —— client 侧只 require react/jsx-runtime +
+  #     dsh-client-store + dsh-client-ui-primitives ✅；host 侧依赖
+  #     @deepseek-ai/schemastery 3.18.2（宿主 hoisted node_modules 已有 ✅）
+  #   · dsh-skin-manager 0.1.6  —— client 侧硬 require 已被平台移除的
+  #     @deepseek-ai/dsh-client-runtime/client ⇒ 必抛 missed the module table，
+  #     而任一 loader entry 导入失败会中止整个 web 壳启动（整屏 Failed to load
+  #     plugins）。由 src/main/plugin-compat.js 的补丁把它改指后继 seed 模块
+  #     dsh-client-store；实测该接收变量在插件里从未被使用，属上游残留死引用。
+  #
+  - name: dsh-dream-skin
+    npm: "dsh-dream-skin@9.16.0"
+  - name: dsh-client-ui-seaglass
+    npm: "dsh-client-ui-seaglass@1.6.7"
+  - name: dsh-skin-manager
+    npm: "dsh-skin-manager@0.1.6"
