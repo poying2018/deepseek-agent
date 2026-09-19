@@ -2,9 +2,9 @@
 
 > **DeepSeek Harness 的桌面客户端发行版** —— 开箱即用，无需手动安装 Node.js、配置运行环境或敲命令行。
 >
-> 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 23 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
+> 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 29 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
 
-**当前版本：`1.3.1`**
+**当前版本：`1.3.3`**
 
 > ℹ️ v1.2.0 起内部标识由 **JackDSH / jackdsh** 统一为 **LJANX / ljanx**（对外品牌名仍为 DeepSeek Agent）。旧安装的数据目录会在首次启动时**自动迁移**（`%APPDATA%\jackdsh` → `%APPDATA%\ljanx`），工作区/会话/模型授权不受影响 —— 详见 [品牌名与内部标识](#-品牌名与内部标识)。
 
@@ -63,17 +63,29 @@
 | 11 | `dsh-session-navigator` | 增强会话搜索与导航（会话 ID 命中、引用复制、置顶） | [LJANX](https://github.com/LJANX/dsh-session-navigator) |
 | 12 | `dsh-plugin-dashboard` | 插件与版本大盘：版本矩阵、无感热开关、一键诊断复制 | [LJANX](https://github.com/LJANX/dsh-plugin-dashboard) |
 | 13 | `dsh-web-search-follow` | 联网搜索后端跟随当前会话模型 | [LJANX](https://github.com/LJANX/dsh-web-search-follow) |
-| 14 | `dsh-workbuddy-dual` | 同时接入 WorkBuddy 国内版与海外版模型，双轨并发 | [LJANX](https://github.com/LJANX/dsh-workbuddy-dual) |
-| 15 | `dsh-better-sidebar` | VSCode 风格侧栏（资源管理器 / 编辑器 / 终端） | [LJANX](https://github.com/LJANX/DSH-better-sidebar) |
-| 16 | `dsh-paste-path` | 任意文件/文件夹的智能拖拽与路径粘贴 | [LJANX](https://github.com/LJANX/dsh-paste-path) |
-| 17 | `dsh-autostart` | 跨平台开机自启动开关 | [LJANX](https://github.com/LJANX/dsh-autostart) |
-| 18 | `dsh-browser-attach` | 经 CDP 接管本机真实 Chrome（复用登录态） | [LJANX](https://github.com/LJANX/dsh-browser-attach) |
-| 19 | `dsh-cmdj-toggle` | Cmd/Ctrl+J 聚焦热键，折叠/展开侧栏 | [LJANX](https://github.com/LJANX/dsh-cmdj-toggle) |
-| 20 | `dsh-connect-workbuddy` | 零配置接入 WorkBuddy 桌面端已登录模型 | [dingminhua](https://github.com/dingminhua/dsh-connect-workbuddy) |
-| 21 | `dsh-codex-timeline` | 官方会话的搜索、收藏、分支与个性化 | npm |
-| 22 | `@mlgbnb/dsh-archive-manager` | 归档会话的预览、恢复与删除 | npm |
-| 23 | `@wxg-prc-cpg/browser-skill-dsh-plugin` | 暴露 BrowserSkill 浏览器自动化能力 | npm |
+| 14 | `dsh-better-sidebar` | VSCode 风格侧栏（资源管理器 / 编辑器 / 终端） | [LJANX](https://github.com/LJANX/DSH-better-sidebar) |
+| 15 | `dsh-paste-path` | 任意文件/文件夹的智能拖拽与路径粘贴 | [LJANX](https://github.com/LJANX/dsh-paste-path) |
+| 16 | `dsh-autostart` | 跨平台开机自启动开关 | [LJANX](https://github.com/LJANX/dsh-autostart) |
+| 17 | `dsh-browser-attach` | 经 CDP 接管本机真实 Chrome（复用登录态） | [LJANX](https://github.com/LJANX/dsh-browser-attach) |
+| 18 | `dsh-cmdj-toggle` | Cmd/Ctrl+J 聚焦热键，折叠/展开侧栏 | [LJANX](https://github.com/LJANX/dsh-cmdj-toggle) |
+| 19 | `@mlgbnb/dsh-archive-manager` | 归档会话的预览、恢复与删除 | npm |
+| 20 | `@wxg-prc-cpg/browser-skill-dsh-plugin` | 暴露 BrowserSkill 浏览器自动化能力 | npm |
+| 21 | `dsh-codearts-auth` | 华为云 CodeArts / CodeBuddy / WorkBuddy 一顶三的账号接入：浏览器登录、静默续期、积分与模型开关 | [iJetLi](https://gitee.com/iJetLi/deepseek-harness-codearts) |
+| 22 | `dsh-connect-trae` | 把本机已登录的 Trae 账号接成 provider，附只读用量卡片 | npm |
+| 23 | `dsh-damage-pulse` | Token 余额监控：鲸鱼娘待机/扣费动画、峰谷计费、会话费用统计 | [wssfk12138](https://github.com/wssfk12138/dsh-damage-pulse) |
+| 24 | `dsh-undo-savepoint` | 配置与插件代码变更的可回滚快照、一键 SAFE MODE、离线救援 CLI | [lire1131](https://github.com/lire1131/dsh-undo-savepoint) |
+| 25 | `dsh-provider-qoder` | 把 Qoder 订阅账号接成 provider：COSY 签名流式、PAT 安全存储、实时模型目录、企业 VPC | [mo-n](https://github.com/mo-n/dsh-provider-qoder) |
+| 26 | `dsh-dream-skin` | 换肤：8 套 iOS / Linear 式冷调主题 + 弥散光壁纸 + 强调色 + 主题包分享（**默认不启用**） | [RevolutionLA](https://github.com/RevolutionLA/dsh-dream-skin) |
+| 27 | `dsh-client-ui-seaglass` | 玻璃拟态主题：模糊、霜化、圆角、动效均可调（**默认不启用**） | [xiyunyunyun](https://github.com/xiyunyunyun/dsh-client-ui-seaglass) |
+| 28 | `dsh-skin-manager` | 皮肤发现与互斥切换的独立设置页，含「恢复官方外观」（**默认不启用**） | npm |
+| 29 | `dsh-update-check` | 侧栏「检查更新」：查 GitHub Release、展示变更说明、就地下载 | 仓内自带 |
 
+> **另有两条说明**：
+> · `dsh-codex-timeline` 随包分发，但它显式声明「仅验证到内核 0.1.2-alpha.3」，
+>   而本版内核是 0.1.5-rc.2，打包时的内核兼容性门禁会把它置为停用，所以在插件列表里看不到它。
+> · 换肤三件套（`dsh-dream-skin` / `dsh-client-ui-seaglass` / `dsh-skin-manager`）随包但**默认不启用**，
+>   在插件面板里打开即可，全程离线。
+>
 > 另外还内置了 BrowserSkill 的 `bsk` CLI（`bundle-runtime/bin/`），供浏览器自动化插件调用。
 
 ---
