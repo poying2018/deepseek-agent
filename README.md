@@ -4,7 +4,7 @@
 >
 > 本发行版本质是一次**打包整合**：底层是 DeepSeek 官方的 DeepSeek Harness 内核，上层集成了 28 个插件（含多款自研）。所有依赖都已打进安装包，装完即可离线启动，首次运行时会自动完成配置。
 
-**当前版本：`1.3.4`**
+**当前版本：`1.3.7`**
 
 > ℹ️ v1.2.0 起内部标识由 **JackDSH / jackdsh** 统一为 **LJANX / ljanx**（对外品牌名仍为 DeepSeek Agent）。旧安装的数据目录会在首次启动时**自动迁移**（`%APPDATA%\jackdsh` → `%APPDATA%\ljanx`），工作区/会话/模型授权不受影响 —— 详见 [品牌名与内部标识](#-品牌名与内部标识)。
 
@@ -41,51 +41,6 @@
 
 5. **数据本地隔离**
    运行时配置与数据存放在用户专属目录（`%APPDATA%\ljanx\dsh-data`），不污染系统全局开发环境；卸载时默认保留。
-
----
-
-## 🧩 内置插件矩阵（23 个，全部独立开源）
-
-构建时按 [`plugins.manifest.yaml`](plugins.manifest.yaml) 从公开仓库拉取源码并打进安装包，「所见即所开源」。
-
-| # | 插件 | 作用 | 来源 |
-| -- | :--- | :--- | :--- |
-| 1 | `dsh-mobile-plus` | 局域网手机遥控：文字与文件对话，带图标化会话入口 | [LJANX](https://github.com/LJANX/dsh-mobile-plus) |
-| 2 | `dsh-grok-oauth` | 独立、本机持有的 Grok（xAI）provider | [LJANX](https://github.com/LJANX/dsh-grok-oauth) |
-| 3 | `dsh-gemini-oauth` | 独立、本机持有的 Gemini provider（经 Antigravity / Cloud Code Assist） | [LJANX](https://github.com/LJANX/dsh-gemini-oauth) |
-| 4 | `dsh-deepseek-balance` | 输入框下方静默显示 DeepSeek API 余额，并提供设置页 | [LJANX](https://github.com/LJANX/dsh-deepseek-balance) |
-| 5 | `dsh-today` | 拦截默认新会话，直接打开「当日工作区」 | [LJANX](https://github.com/LJANX/dsh-today) |
-| 6 | `dsh-web-restart` | 侧栏一键重启 dsh web 服务 | [LJANX](https://github.com/LJANX/dsh-web-restart) |
-| 7 | `dsh-workspace-path` | 侧栏工作区中心，接管官方目录选择器 | [LJANX](https://github.com/LJANX/dsh-workspace-path) |
-| 8 | `dsh-robust-search` | 稳健的全文会话检索，隔离损坏数据 | [LJANX](https://github.com/LJANX/dsh-robust-search) |
-| 9 | `dsh-reminder` | 任务完成提示音（peon-ping 移植） | [LJANX](https://github.com/LJANX/dsh-reminder) |
-| 10 | `dsh-app-badge` | 系统 Dock / 任务栏未读角标 | [LJANX](https://github.com/LJANX/dsh-app-badge) |
-| 11 | `dsh-session-navigator` | 增强会话搜索与导航（会话 ID 命中、引用复制、置顶） | [LJANX](https://github.com/LJANX/dsh-session-navigator) |
-| 12 | `dsh-plugin-dashboard` | 插件与版本大盘：版本矩阵、无感热开关、一键诊断复制 | [LJANX](https://github.com/LJANX/dsh-plugin-dashboard) |
-| 13 | `dsh-web-search-follow` | 联网搜索后端跟随当前会话模型 | [LJANX](https://github.com/LJANX/dsh-web-search-follow) |
-| 14 | `dsh-better-sidebar` | VSCode 风格侧栏（资源管理器 / 编辑器 / 终端） | [LJANX](https://github.com/LJANX/DSH-better-sidebar) |
-| 15 | `dsh-paste-path` | 任意文件/文件夹的智能拖拽与路径粘贴 | [LJANX](https://github.com/LJANX/dsh-paste-path) |
-| 16 | `dsh-autostart` | 跨平台开机自启动开关 | [LJANX](https://github.com/LJANX/dsh-autostart) |
-| 17 | `dsh-browser-attach` | 经 CDP 接管本机真实 Chrome（复用登录态） | [LJANX](https://github.com/LJANX/dsh-browser-attach) |
-| 18 | `dsh-cmdj-toggle` | Cmd/Ctrl+J 聚焦热键，折叠/展开侧栏 | [LJANX](https://github.com/LJANX/dsh-cmdj-toggle) |
-| 19 | `@mlgbnb/dsh-archive-manager` | 归档会话的预览、恢复与删除 | npm |
-| 20 | `@wxg-prc-cpg/browser-skill-dsh-plugin` | 暴露 BrowserSkill 浏览器自动化能力 | npm |
-| 21 | `dsh-codearts-auth` | 华为云 CodeArts / CodeBuddy / WorkBuddy 一顶三的账号接入：浏览器登录、静默续期、积分与模型开关 | [iJetLi](https://gitee.com/iJetLi/deepseek-harness-codearts) |
-| 22 | `dsh-connect-trae` | 把本机已登录的 Trae 账号接成 provider，附只读用量卡片 | npm |
-| 23 | `dsh-damage-pulse` | Token 余额监控：鲸鱼娘待机/扣费动画、峰谷计费、会话费用统计 | [wssfk12138](https://github.com/wssfk12138/dsh-damage-pulse) |
-| 24 | `dsh-undo-savepoint` | 配置与插件代码变更的可回滚快照、一键 SAFE MODE、离线救援 CLI | [lire1131](https://github.com/lire1131/dsh-undo-savepoint) |
-| 25 | `dsh-dream-skin` | 换肤：8 套 iOS / Linear 式冷调主题 + 弥散光壁纸 + 强调色 + 主题包分享（**默认不启用**） | [RevolutionLA](https://github.com/RevolutionLA/dsh-dream-skin) |
-| 26 | `dsh-client-ui-seaglass` | 玻璃拟态主题：模糊、霜化、圆角、动效均可调（**默认不启用**） | [xiyunyunyun](https://github.com/xiyunyunyun/dsh-client-ui-seaglass) |
-| 27 | `dsh-skin-manager` | 皮肤发现与互斥切换的独立设置页，含「恢复官方外观」（**默认不启用**） | npm |
-| 28 | `dsh-update-check` | 侧栏「检查更新」：查 GitHub Release、展示变更说明、就地下载 | 仓内自带 |
-
-> **另有两条说明**：
-> · `dsh-codex-timeline` 随包分发，但它显式声明「仅验证到内核 0.1.2-alpha.3」，
->   而本版内核是 0.1.5-rc.2，打包时的内核兼容性门禁会把它置为停用，所以在插件列表里看不到它。
-> · 换肤三件套（`dsh-dream-skin` / `dsh-client-ui-seaglass` / `dsh-skin-manager`）随包但**默认不启用**，
->   在插件面板里打开即可，全程离线。
->
-> 另外还内置了 BrowserSkill 的 `bsk` CLI（`bundle-runtime/bin/`），供浏览器自动化插件调用。
 
 ---
 
