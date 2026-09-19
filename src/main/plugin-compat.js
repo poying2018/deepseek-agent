@@ -178,78 +178,33 @@ export const PLUGIN_RUNTIME_PATCHES = [
   },
   {
     plugin: 'dsh-plugin-dashboard',
-    desc: '底栏版本徽标改走主题 token，并搬出「设置」按钮',
-    // 侧栏左下角那一排（重启 / 检查更新 / 手机遥控 / 工作区）全部走官方主题 token：
-    //   background:transparent + color:var(--dsw-alias-label-secondary)
-    // 唯独这个版本胶囊把浅色主题的值写死了（#eff6ff 底 / #bfdbfe 描边 / #1d4ed8 字），
-    // 换到有色或深色皮肤上就变成一张贴上去的白纸条。
-    // 另外它原本被塞进「设置」按钮内部（label.after(badge)），而按钮宽度是受限的：
-    // 溢出隐藏时先裁掉的是徽标尾字符（实测显示成 "v1.3"），改成 overflow:visible 又会
-    // 直接溢出压到旁边的重启图标上 —— 两种坏味道都实测过，都是错的。正解是让它离开按钮，
-    // 作为底部图标行（_footerActions，那一排 36px 圆形按钮的容器）的独立 flex 项排在最前。
-    // 顺带把 tooltip 里残留的旧品牌字样 JackDSH 换成对外品牌名 DeepSeek Agent
-    // —— 只是显示文案；宿主侧环境变量 JACKDSH_VERSION 的双写别名不受影响。
+    desc: '底栏不再注入版本号胶囊（宽度实测不够），tooltip 改用对外品牌名',
+    // 这个胶囊原本挂在「设置」按钮内部 label 之后。2026-09-19 在真实页面里量过：
+    //   _footArea（被 dsh-web-restart 的宽模式改成一行）总宽 207px
+    //   _footerActions 是 flex:none，四个 36px 图标固定吃掉 144px
+    //   _settingsArea 是 flex:1 1 auto，只剩 63px；按钮内部是 [齿轮 15px][gap 8][设置]
+    // 也就是说这一行**没有**放版本号胶囊的余量，四种放法都实测过、都坏：
+    //   ① 留在按钮里 → 宽度不足时先裁掉徽标尾字符（显示成 "v1.3"）；
+    //   ② overflow:visible → 直接溢出压到旁边的重启图标；
+    //   ③ 搬进 _footerActions 当独立 flex 项 → 144 变 ~200，把 flex:1 的设置区挤到
+    //      几乎不可点击；
+    //   ④ 按钮改 flex-direction:column 纵向堆叠 → 尺寸不变，但会把齿轮图标一起堆起来。
+    // 结论：底栏不放版本号。版本仍可在 tooltip 和插件面板里看（tooltip 顺带改成对外
+    // 品牌名，替换掉残留的旧品牌字样 JackDSH —— 只是显示文案，宿主侧
+    // JACKDSH_VERSION 环境变量双写别名不受影响）。
     edits: [
-      {
-        file: 'client.js',
-        fromLines: [
-          '          line-height: 16px;',
-          '          color: #1d4ed8;',
-          '          background: #eff6ff;',
-          '          border: 1px solid #bfdbfe;',
-        ],
-        toLines: [
-          '          line-height: 16px;',
-          '          height: 22px;',
-          '          padding: 1px 8px;',
-          '          margin: 0 6px 0 2px;',
-          '          align-self: center;',
-          '          white-space: nowrap;',
-          '          color: var(--dsw-alias-label-secondary);',
-          '          background: color-mix(in srgb, var(--dsw-alias-label-secondary) 12%, transparent);',
-          '          border: 1px solid color-mix(in srgb, var(--dsw-alias-label-secondary) 26%, transparent);',
-        ],
-      },
-      {
-        file: 'client.js',
-        fromLines: [
-          '        button:hover .jpd-version-badge {',
-          '          background: #dbeafe;',
-          '          border-color: #93c5fd;',
-          '          color: #1e40af;',
-          '        }',
-        ],
-        toLines: [
-          '        /* 徽标改挂到底部图标行上：整行 hover 时与按钮同节奏提亮 */',
-          '        [class*="_footerActions"]:has(.jpd-version-badge):hover .jpd-version-badge,',
-          '        button:hover .jpd-version-badge {',
-          '          background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, var(--dsw-alias-label-secondary) 22%, transparent));',
-          '          border-color: color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent);',
-          '          color: var(--dsw-alias-label-primary);',
-          '        }',
-        ],
-      },
       {
         file: 'client.js',
         fromLines: [
           "          const label = trigger.querySelector('[class*=\"_triggerLabel\"]')",
           '          if (label) {',
-          "            let badge = trigger.querySelector('.jpd-version-badge')",
         ],
         toLines: [
-          "          const label = trigger.querySelector('[class*=\"_triggerLabel\"]')",
-          '          // 徽标不留在「设置」按钮里：按钮宽度受限，裁字符与压到相邻图标两种坏味道',
-          '          // 都实测过。改为作为独立 flex 项挂进底部图标行，排在按钮之前。',
-          "          const actionsRow = trigger.closest('[class*=\"_footArea\"]')?.querySelector('[class*=\"_footerActions\"]') ?? null",
-          '          const host = actionsRow ?? trigger',
-          '          if (host) {',
-          "            let badge = host.querySelector(':scope > .jpd-version-badge')",
+          '          // LJANX：底栏宽度实测不够放版本号胶囊（四种放法都会挤坏布局，成因见补丁表注释），',
+          '          // 所以这里不再注入；版本号见按钮 tooltip 与插件面板。label 置空即整段跳过。',
+          '          const label = null',
+          '          if (label) {',
         ],
-      },
-      {
-        file: 'client.js',
-        from: '              label.after(badge)',
-        to: '              if (actionsRow) actionsRow.prepend(badge)\n              else if (label) label.after(badge)',
       },
       {
         file: 'client.js',
