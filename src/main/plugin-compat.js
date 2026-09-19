@@ -178,15 +178,15 @@ export const PLUGIN_RUNTIME_PATCHES = [
   },
   {
     plugin: 'dsh-plugin-dashboard',
-    desc: '底栏版本徽标改为主题 token 派生色，并修掉被裁字符',
+    desc: '底栏版本徽标改走主题 token，并搬出「设置」按钮',
     // 侧栏左下角那一排（重启 / 检查更新 / 手机遥控 / 工作区）全部走官方主题 token：
     //   background:transparent + color:var(--dsw-alias-label-secondary)
     // 唯独这个版本胶囊把浅色主题的值写死了（#eff6ff 底 / #bfdbfe 描边 / #1d4ed8 字），
     // 换到有色或深色皮肤上就变成一张贴上去的白纸条。
-    // 另外它挂在「设置」按钮内部 label 的后面，宽度不够时先被裁掉的是徽标的尾字符
-    // （实测显示成 "v1.3"）。改法：颜色一律由 --dsw-alias-label-secondary 派生
-    // （color-mix 半透明叠加，任何皮肤下都是同一种"同族"观感），并让可伸缩的 label
-    // 文字先截断、固定尺寸的徽标保持完整。
+    // 另外它原本被塞进「设置」按钮内部（label.after(badge)），而按钮宽度是受限的：
+    // 溢出隐藏时先裁掉的是徽标尾字符（实测显示成 "v1.3"），改成 overflow:visible 又会
+    // 直接溢出压到旁边的重启图标上 —— 两种坏味道都实测过，都是错的。正解是让它离开按钮，
+    // 作为底部图标行（_footerActions，那一排 36px 圆形按钮的容器）的独立 flex 项排在最前。
     // 顺带把 tooltip 里残留的旧品牌字样 JackDSH 换成对外品牌名 DeepSeek Agent
     // —— 只是显示文案；宿主侧环境变量 JACKDSH_VERSION 的双写别名不受影响。
     edits: [
@@ -202,6 +202,8 @@ export const PLUGIN_RUNTIME_PATCHES = [
           '          line-height: 16px;',
           '          height: 22px;',
           '          padding: 1px 8px;',
+          '          margin: 0 6px 0 2px;',
+          '          align-self: center;',
           '          white-space: nowrap;',
           '          color: var(--dsw-alias-label-secondary);',
           '          background: color-mix(in srgb, var(--dsw-alias-label-secondary) 12%, transparent);',
@@ -218,20 +220,36 @@ export const PLUGIN_RUNTIME_PATCHES = [
           '        }',
         ],
         toLines: [
+          '        /* 徽标改挂到底部图标行上：整行 hover 时与按钮同节奏提亮 */',
+          '        [class*="_footerActions"]:has(.jpd-version-badge):hover .jpd-version-badge,',
           '        button:hover .jpd-version-badge {',
           '          background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, var(--dsw-alias-label-secondary) 22%, transparent));',
           '          border-color: color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent);',
           '          color: var(--dsw-alias-label-primary);',
           '        }',
-          '        /* 徽标不可被裁：让可伸缩的 label 文字先截断，固定尺寸的徽标保持完整 */',
-          '        button:has(.jpd-version-badge) { overflow: visible; }',
-          '        button:has(.jpd-version-badge) [class*="_triggerLabel"] {',
-          '          min-width: 0;',
-          '          overflow: hidden;',
-          '          text-overflow: ellipsis;',
-          '          white-space: nowrap;',
-          '        }',
         ],
+      },
+      {
+        file: 'client.js',
+        fromLines: [
+          "          const label = trigger.querySelector('[class*=\"_triggerLabel\"]')",
+          '          if (label) {',
+          "            let badge = trigger.querySelector('.jpd-version-badge')",
+        ],
+        toLines: [
+          "          const label = trigger.querySelector('[class*=\"_triggerLabel\"]')",
+          '          // 徽标不留在「设置」按钮里：按钮宽度受限，裁字符与压到相邻图标两种坏味道',
+          '          // 都实测过。改为作为独立 flex 项挂进底部图标行，排在按钮之前。',
+          "          const actionsRow = trigger.closest('[class*=\"_footArea\"]')?.querySelector('[class*=\"_footerActions\"]') ?? null",
+          '          const host = actionsRow ?? trigger',
+          '          if (host) {',
+          "            let badge = host.querySelector(':scope > .jpd-version-badge')",
+        ],
+      },
+      {
+        file: 'client.js',
+        from: '              label.after(badge)',
+        to: '              if (actionsRow) actionsRow.prepend(badge)\n              else if (label) label.after(badge)',
       },
       {
         file: 'client.js',
