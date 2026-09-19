@@ -176,6 +176,70 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: 'dsh-plugin-dashboard',
+    desc: '底栏版本徽标改为主题 token 派生色，并修掉被裁字符',
+    // 侧栏左下角那一排（重启 / 检查更新 / 手机遥控 / 工作区）全部走官方主题 token：
+    //   background:transparent + color:var(--dsw-alias-label-secondary)
+    // 唯独这个版本胶囊把浅色主题的值写死了（#eff6ff 底 / #bfdbfe 描边 / #1d4ed8 字），
+    // 换到有色或深色皮肤上就变成一张贴上去的白纸条。
+    // 另外它挂在「设置」按钮内部 label 的后面，宽度不够时先被裁掉的是徽标的尾字符
+    // （实测显示成 "v1.3"）。改法：颜色一律由 --dsw-alias-label-secondary 派生
+    // （color-mix 半透明叠加，任何皮肤下都是同一种"同族"观感），并让可伸缩的 label
+    // 文字先截断、固定尺寸的徽标保持完整。
+    // 顺带把 tooltip 里残留的旧品牌字样 JackDSH 换成对外品牌名 DeepSeek Agent
+    // —— 只是显示文案；宿主侧环境变量 JACKDSH_VERSION 的双写别名不受影响。
+    edits: [
+      {
+        file: 'client.js',
+        fromLines: [
+          '          line-height: 16px;',
+          '          color: #1d4ed8;',
+          '          background: #eff6ff;',
+          '          border: 1px solid #bfdbfe;',
+        ],
+        toLines: [
+          '          line-height: 16px;',
+          '          height: 22px;',
+          '          padding: 1px 8px;',
+          '          white-space: nowrap;',
+          '          color: var(--dsw-alias-label-secondary);',
+          '          background: color-mix(in srgb, var(--dsw-alias-label-secondary) 12%, transparent);',
+          '          border: 1px solid color-mix(in srgb, var(--dsw-alias-label-secondary) 26%, transparent);',
+        ],
+      },
+      {
+        file: 'client.js',
+        fromLines: [
+          '        button:hover .jpd-version-badge {',
+          '          background: #dbeafe;',
+          '          border-color: #93c5fd;',
+          '          color: #1e40af;',
+          '        }',
+        ],
+        toLines: [
+          '        button:hover .jpd-version-badge {',
+          '          background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, var(--dsw-alias-label-secondary) 22%, transparent));',
+          '          border-color: color-mix(in srgb, var(--dsw-alias-label-primary) 30%, transparent);',
+          '          color: var(--dsw-alias-label-primary);',
+          '        }',
+          '        /* 徽标不可被裁：让可伸缩的 label 文字先截断，固定尺寸的徽标保持完整 */',
+          '        button:has(.jpd-version-badge) { overflow: visible; }',
+          '        button:has(.jpd-version-badge) [class*="_triggerLabel"] {',
+          '          min-width: 0;',
+          '          overflow: hidden;',
+          '          text-overflow: ellipsis;',
+          '          white-space: nowrap;',
+          '        }',
+        ],
+      },
+      {
+        file: 'client.js',
+        from: '          const fullTitle = `设置 · JackDSH v${cachedJackDshVersion}`',
+        to: '          const fullTitle = `设置 · DeepSeek Agent v${cachedJackDshVersion}`',
+      },
+    ],
+  },
 ]
 
 /**
@@ -185,36 +249,40 @@ export const PLUGIN_RUNTIME_PATCHES = [
  * @param {{log: Function, warn: Function}} [log] 日志注入：构建期用 console，宿主用自身日志
  */
 export function applyPluginRuntimePatches(name, dir, log = console) {
-  const entry = PLUGIN_RUNTIME_PATCHES.find((it) => it.plugin === name)
-  if (entry === undefined) return
-  let applied = 0
-  for (const edit of entry.edits) {
-    const file = join(dir, edit.file)
-    if (!existsSync(file)) {
-      log.warn(`  ⚠️ 插件补丁目标文件不存在: ${name}/${edit.file}`)
-      continue
+  // 同一插件可以有多条条目（不同成因分开记）。这里必须用 filter 而不是 find：
+  // 用 find 时第二条会静默不生效，是那种"补丁写了但没打上、日志也不报错"的坑。
+  const entries = PLUGIN_RUNTIME_PATCHES.filter((it) => it.plugin === name)
+  if (entries.length === 0) return
+  for (const entry of entries) {
+    let applied = 0
+    for (const edit of entry.edits) {
+      const file = join(dir, edit.file)
+      if (!existsSync(file)) {
+        log.warn(`  ⚠️ 插件补丁目标文件不存在: ${name}/${edit.file}`)
+        continue
+      }
+      const text = readFileSync(file, 'utf8')
+      // 支持 fromLines/toLines：按文件自身行尾拼接（上游文件可能是 CRLF，LF 锚点会全部失配）
+      const EOL = text.includes('\r\n') ? '\r\n' : '\n'
+      const from = edit.fromLines ? edit.fromLines.join(EOL) : edit.from
+      const to = edit.toLines ? edit.toLines.join(EOL) : edit.to
+      if (from === undefined || to === undefined) {
+        log.warn(`  ⚠️ 插件补丁缺少 from/to: ${name}/${edit.file}`)
+        continue
+      }
+      if (text.includes(to)) continue // 幂等
+      if (!text.includes(from)) {
+        log.warn(
+          `  ⚠️ 插件补丁未命中（上游结构可能已变）: ${name}/${edit.file} ← ${JSON.stringify(from.slice(0, 48))}`,
+        )
+        continue
+      }
+      writeFileSync(file, text.replaceAll(from, to))
+      applied += 1
     }
-    const text = readFileSync(file, 'utf8')
-    // 支持 fromLines/toLines：按文件自身行尾拼接（上游文件可能是 CRLF，LF 锚点会全部失配）
-    const EOL = text.includes('\r\n') ? '\r\n' : '\n'
-    const from = edit.fromLines ? edit.fromLines.join(EOL) : edit.from
-    const to = edit.toLines ? edit.toLines.join(EOL) : edit.to
-    if (from === undefined || to === undefined) {
-      log.warn(`  ⚠️ 插件补丁缺少 from/to: ${name}/${edit.file}`)
-      continue
+    if (applied > 0) {
+      log.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（${entry.desc ?? '兼容修复'}）`)
     }
-    if (text.includes(to)) continue // 幂等
-    if (!text.includes(from)) {
-      log.warn(
-        `  ⚠️ 插件补丁未命中（上游结构可能已变）: ${name}/${edit.file} ← ${JSON.stringify(from.slice(0, 48))}`,
-      )
-      continue
-    }
-    writeFileSync(file, text.replaceAll(from, to))
-    applied += 1
-  }
-  if (applied > 0) {
-    log.log(`  🔧 插件兼容补丁（${applied} 处）: ${name}（${entry.desc ?? '兼容修复'}）`)
   }
 }
 
