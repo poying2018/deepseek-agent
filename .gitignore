@@ -14,3 +14,6 @@ sessions/
 *.pid
 data/
 .tmp-dshhome-test/
+
+# Qoder 会话用量/安全审查工具的本地产物，不是交付物（曾被误提交进公开仓库）
+.qoder-credits/
