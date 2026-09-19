@@ -129,6 +129,156 @@ export const PLUGIN_RUNTIME_PATCHES = [
     ],
   },
   {
+    plugin: 'dsh-codearts-auth',
+    desc: 'benefit（免费额度）头口径变了的自愈重试：修「codearts: benefit not found」',
+    // ── 报错现场 ────────────────────────────────────────────────────────────
+    // 用户报「本轮运行失败 codearts: benefit not found」。该字符串**不在插件代码里**，
+    // 是 CodeArts 后端在 HTTP 200 的 SSE 流里回的 `error_msg`；适配器在
+    // llm-adapter.js 的 consumeSse 里检测到 error_code 后原样抛出：
+    //     throw new LlmError(`codearts: ${message}`, 'INVALID_REQUEST', { status: 200 })
+    // 于是 UI 上就是 `codearts: benefit not found`。
+    //
+    // ── 成因 ────────────────────────────────────────────────────────────────
+    // 后端有一类「benefit（免费额度）」模型：chat 请求**必须**带 `maas_type: benefit`
+    // 请求头并参与 HMAC 签名，否则拒绝。而插件把这个名单**硬编码**成只有
+    // `glm-5.3-flash`（见 MAAS_TYPE_BENEFIT_MODELS，注释写于 2026-08）。
+    // 但同一个文件开头还写着 deepseek-v4-flash 是「每日 1000 万免费 Tokens **福利**」
+    // 模型（福利 = benefit），而它**不在**那张表里 ⇒ 若后端已把 deepseek-v4-flash
+    // 也改成 benefit 口径，请求就会因为「没有声明 benefit」而失败；反过来，若账号侧
+    // 的 benefit 额度失效，带着该头的 glm-5.3-flash 同样会失败。
+    // 两种情形都会走到同一个错误文案，仅凭消息无法区分。
+    //
+    // ── 实测结论（2026-09-19，用插件自己的 sign.js 直连后端验证）────────────
+    // 对同一个账号各发两次最小请求，结果非常明确：
+    //   · deepseek-v4-flash  不带 maas_type → HTTP 200 正常出流 ✅
+    //                        带 maas_type   → HTTP 200 + error_msg「benefit not found」❌
+    //   · glm-5.3-flash      不带 maas_type → InferHub.002002009.404「model is not registered」❌
+    //                        带 maas_type   → 被接受（当时撞到 TM.00001041 并发上限）
+    // 也就是说**插件原本的名单方向是对的**：`glm-5.3-flash` 是 benefit 模型、必须带头；
+    // `deepseek-v4-flash` 不是，带头反而会被拒。⚠️ 因此**不要**把 deepseek-v4-* 加进这张表
+    // （试过，实测会把它直接打坏）。
+    //
+    // 那 `codearts: benefit not found` 是怎么来的：后端在「带着 benefit 头、但不是
+    // benefit 模型的请求」上回这个错。也就是说报错那条请求用的是 glm-5.3-flash 一类的
+    // benefit 模型，而后端此刻不认这份 benefit 权益（额度/并发/活动状态）。
+    // 这属于账号侧状态，代码改不了 —— 我们能做的是**别让它变成一句没有出路的报错**。
+    //
+    // ── 改法：只加一层自愈 + 把话说清楚（不动名单）─────────────────────────
+    // 命中 benefit 语义的错误时，抛可重试信号，由外层把 `maas_type` 头取反重试一次：
+    //   · 名单正确时这条路径永不触发 ⇒ 正常请求零影响；
+    //   · 后端将来真的改口径（把某个模型在 benefit/非 benefit 之间挪），它能自动适应；
+    //   · 两次都失败时抛出带模型名与建议的错误，而不是光秃秃一行 `benefit not found`。
+    edits: [
+      {
+        // ① 新增专用的可重试错误类型（外层 catch 据此区分「切换 benefit 头」与排队重试）
+        file: 'lib/llm-adapter.js',
+        fromLines: [
+          'class SseQueueRetryError extends Error {',
+          '    code;',
+          '    constructor(code, message) {',
+          '        super(message);',
+          "        this.name = 'SseQueueRetryError';",
+          '        this.code = code;',
+          '    }',
+          '}',
+        ],
+        toLines: [
+          'class SseQueueRetryError extends Error {',
+          '    code;',
+          '    constructor(code, message) {',
+          '        super(message);',
+          "        this.name = 'SseQueueRetryError';",
+          '        this.code = code;',
+          '    }',
+          '}',
+          '/**',
+          ' * LJANX：后端以「benefit」语义拒绝请求时抛出的可重试信号。',
+          ' * 外层重试循环据此把 `maas_type: benefit` 头**取反**再试一次（只一次）。',
+          ' * 为什么不在代码里维护 benefit 模型名单：名单在后端手里、会变，猜错会主动',
+          ' * 把本来能用的模型打坏；让请求自适应则两条口径都能走通。',
+          ' */',
+          'class SseBenefitRetryError extends Error {',
+          '    code;',
+          '    constructor(code, message) {',
+          '        super(message);',
+          "        this.name = 'SseBenefitRetryError';",
+          '        this.code = code;',
+          '    }',
+          '}',
+        ],
+      },
+      {
+        // ② 外层重试循环前声明「benefit 头是否取反」
+        file: 'lib/llm-adapter.js',
+        fromLines: [
+          '        for (;;) {',
+          '            // glm-5.3-flash 是 benefit（免费额度）模型，后端要求 maas_type: benefit',
+        ],
+        toLines: [
+          '        // LJANX：0 = 用插件内置表判断要不要 benefit 头；1 = 取反重试（仅一次）。',
+          '        let __ljanxBenefitFlip = 0;',
+          '        for (;;) {',
+          '            // glm-5.3-flash 是 benefit（免费额度）模型，后端要求 maas_type: benefit',
+        ],
+      },
+      {
+        // ③ 按「内置表 XOR 取反标记」决定这一次请求带不带 maas_type
+        file: 'lib/llm-adapter.js',
+        from: "            const extraSignedHeaders = MAAS_TYPE_BENEFIT_MODELS.has(options.model) ? { maas_type: 'benefit' } : undefined;",
+        toLines: [
+          '            // LJANX：__ljanxBenefitFlip 为 1 时取反（见 SseBenefitRetryError 的说明）。',
+          '            const __ljanxWantBenefit = MAAS_TYPE_BENEFIT_MODELS.has(options.model) !== (__ljanxBenefitFlip === 1);',
+          "            const extraSignedHeaders = __ljanxWantBenefit ? { maas_type: 'benefit' } : undefined;",
+        ],
+      },
+      {
+        // ④ SSE 内嵌错误：benefit 语义 → 抛可重试信号（而不是直接终止本轮）
+        file: 'lib/llm-adapter.js',
+        from: "                        throw new LlmError(`codearts: ${message}`, 'INVALID_REQUEST', { status: 200 });",
+        toLines: [
+          '                        // LJANX：benefit 语义的错误交给外层切换 maas_type 头重试一次',
+          '                        // （后端对「这个模型要不要 benefit 头」的口径会变，代码里不猜）。',
+          '                        if (/benefit/i.test(message) || /benefit/i.test(String(data.error_code))) {',
+          '                            throw new SseBenefitRetryError(data.error_code, message);',
+          '                        }',
+          "                        throw new LlmError(`codearts: ${message}`, 'INVALID_REQUEST', { status: 200 });",
+        ],
+      },
+      {
+        // ⑤ 消费 SSE 的 catch：处理切换重试，并把二次失败翻译成可行动的说明
+        file: 'lib/llm-adapter.js',
+        fromLines: [
+          '                catch (error) {',
+          '                    if (!(error instanceof SseQueueRetryError))',
+          '                        throw error;',
+          '                    // 落入下方排队重试',
+          '                }',
+        ],
+        toLines: [
+          '                catch (error) {',
+          '                    // LJANX：benefit 口径失败 → 取反 maas_type 头重试一次；',
+          '                    // 仍然失败则说明该模型确实不可用（额度/权益问题），给出可行动的说明。',
+          '                    if (error instanceof SseBenefitRetryError) {',
+          '                        if (__ljanxBenefitFlip === 1) {',
+          '                            throw new LlmError(',
+          '                                `codearts: 模型 ${options.model} 不可用（${error.message}）——已自动切换 maas_type: benefit 头重试仍失败；`',
+          '                                + `该模型可能已不在你账号的 CodeArts 免费额度内，请在 CodeArts 侧确认权益，或换用其它模型（如 deepseek-v4-flash）。`,',
+          "                                'INVALID_REQUEST',",
+          '                                { status: 200 },',
+          '                            );',
+          '                        }',
+          '                        __ljanxBenefitFlip = 1;',
+          '                        continue;',
+          '                    }',
+          '                    if (!(error instanceof SseQueueRetryError))',
+          '                        throw error;',
+          '                    // 落入下方排队重试',
+          '                }',
+        ],
+      },
+    ],
+  },
+  {
     plugin: 'dsh-plugin-dashboard',
     desc: '版本号读取兼容新旧品牌命名（否则回退成 0.1.2-rc.1）',
     // 品牌改名（jackdsh → ljanx）遗留：该插件读旧环境变量名 JACKDSH_VERSION、
