@@ -28,9 +28,12 @@ window.__ModuleLoader__.load({
 
     const css = [
       '.duc{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center}',
-      '[class*="_footArea"]:has(.duc-wide){flex-direction:row;align-items:center;gap:4px}',
-      '[class*="_footArea"]:has(.duc-wide) [class*="_settingsArea"]{flex:1 1 auto;width:auto;min-width:0}',
-      '[class*="_footArea"]:has(.duc-wide) [class*="_footerActions"]{order:2;flex:none;width:auto;align-items:center;justify-content:flex-end}',
+      // 这里原本有三条 :has(.duc-wide) 规则把侧栏底栏从官方的上下两行压成一行，已撤掉。
+      // 一行放不下：展开态 _footArea 可用宽 207px，而「齿轮+设置」按钮自然宽约 77px 再加
+      // 四个 36px 图标（144px）= 221px，被 min-width:0 压扁的是设置区（实测只剩 63px），
+      // 「设置」字样会溢出到图标底下。dsh-web-restart / dsh-mobile-plus 各有同样一套改造，
+      // 只要有一个命中就塌成一行，所以三处一起撤（另两处走发行版补丁表）。
+      // .duc-wide 类名本身继续保留，只是不再有规则挂它。
       '.duc-btn{appearance:none;position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:50%;padding:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background-color 120ms ease,color 120ms ease,box-shadow 120ms ease}',
       '.duc-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-brand-primary)}',
       '.duc-btn:active{background:var(--dsw-alias-interactive-bg-active)}',

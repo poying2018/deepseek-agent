@@ -240,6 +240,26 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: 'dsh-mobile-plus',
+    desc: '停用「底栏压成一行」的三条改造（与 dsh-web-restart 同一套，撤一个不够）',
+    // 侧栏底栏被压成一行是**三个插件各自**做的：dsh-web-restart(.dwr-wide)、
+    // dsh-mobile-plus(.mp-trigger-wide)、dsh-update-check(.duc-wide，仓内自带，已在源码里撤)。
+    // :has() 只要有一条命中就塌成一行，所以只撤 dsh-web-restart 时用户看到的还是原样。
+    // 一行的账（展开态实测）：_footArea 可用 207px，四个 36px 图标 144px，
+    // 「齿轮+设置」按钮自然宽约 77px ⇒ 需要 221px，被 min-width:0 压扁的是设置区
+    // （只剩 63px），「设置」字样溢出到图标底下。
+    // 这个插件的 CSS 是**一整行字符串**，三条规则不是三行源码，没法按行删；
+    // 所以改选择器让它永不命中（类名照旧挂，规则空转）。
+    // ⚠️ 不能用空串替换：执行器的幂等判断是 text.includes(to)，to='' 恒为真会直接跳过补丁。
+    edits: [
+      {
+        file: 'client.js',
+        from: '[class*=\\"_footArea\\"]:has(.mp-trigger-wide)',
+        to: '[class*=\\"_footArea\\"]:has(.mp-trigger-wide-off)',
+      },
+    ],
+  },
 ]
 
 /**
