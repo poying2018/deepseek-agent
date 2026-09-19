@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 3.2,
+  "generatedAt": "2026-09-19T07:41:05.275Z",
+  "source": "desktop-rich",
+  "usageSource": null,
+  "availability": {
+    "credits": "unavailable",
+    "roundTrips": "unavailable",
+    "contextRatio": "unavailable",
+    "tokens": "unavailable",
+    "outputTokens": "unavailable",
+    "cachedTokens": "unavailable",
+    "categoryShare": "unavailable",
+    "toolShare": "unavailable",
+    "fileShare": "unavailable",
+    "systemPrompt": "unavailable",
+    "contextWindow": "fallback",
+    "compactions": "measured",
+    "compactionCost": "measured",
+    "model": "unavailable",
+    "title": "measured",
+    "toolCalls": "measured",
+    "fileReads": "measured",
+    "userTurns": "measured",
+    "userContextLimit": "fallback"
+  },
+  "session": {
+    "id": "d2e00fd0-c8d0-4c81-9e0d-bd151417352a",
+    "title": "{\"codesec_telemetry\":{\"v",
+    "titleSource": "first-user",
+    "model": null,
+    "modelSource": "unavailable",
+    "cwd": "G:\\项目\\JackDSH",
+    "turns": 1,
+    "roundTrips": 0,
+    "compactions": 0,
+    "startedAt": "2026-09-19T07:41:04.424Z",
+    "endedAt": "2026-09-19T07:41:04.917Z"
+  },
+  "context": {
+    "contextWindow": 200000,
+    "contextWindowSource": "fallback",
+    "systemPromptTokens": 0,
+    "netContextTokens": 0,
+    "peakContextTokens": 0,
+    "peakContextRatio": 0,
+    "peakSessionTokens": 0,
+    "peakSessionRatio": 0,
+    "peakSessionNotable": false,
+    "peakAdvice": null,
+    "userContextLimit": 200000,
+    "userContextLimitSource": "default",
+    "peakUserRatio": 0,
+    "peakUserAdvice": null,
+    "currentContextTokens": 0,
+    "netUserRatio": 0,
+    "netUserAdvice": null,
+    "netWindowRatio": 0,
+    "observedAutoCompactions": 0,
+    "observedAutoTriggerTokens": null,
+    "autoTriggerRatio": null,
+    "thresholdNotEnforced": false
+  },
+  "totals": {
+    "billedInputTokens": 0,
+    "netContextTokens": 0,
+    "peakContextTokens": 0,
+    "amplification": 0,
+    "attributedTokens": 0,
+    "coverage": 0,
+    "credits": 0,
+    "originalCredits": 0,
+    "outputTokens": 0,
+    "cachedTokens": 0,
+    "cachedTrips": 0,
+    "cachedShare": 0,
+    "toolCalls": 0,
+    "fileReads": 0
+  },
+  "creditsCoverage": {
+    "trips": 0,
+    "roundTrips": 0,
+    "tokens": 0,
+    "tokenShare": 0,
+    "full": false
+  },
+  "compactionCost": {
+    "count": 0,
+    "items": [],
+    "totals": {
+      "preTokens": 0,
+      "postTokens": 0,
+      "savedTokens": 0,
+      "measured": 0
+    }
+  },
+  "proxy": {
+    "matched": 0,
+    "requests": 0,
+    "breakdown": {
+      "proxy": 0,
+      "transcriptTokens": 0,
+      "transcriptRatio": 0
+    },
+    "logPath": "C:\\Users\\LJANX\\.qoder-credits-proxy\\usage.jsonl",
+    "logExists": false,
+    "logRecords": 0,
+    "configured": false,
+    "enabled": true,
+    "port": 49787,
+    "lastRecordAt": null,
+    "dormant": false,
+    "status": null,
+    "statusSuperseded": false
+  },
+  "byCategory": [],
+  "byCategoryDetail": [],
+  "byTool": [],
+  "byFile": [],
+  "byAttr": [],
+  "byRequest": [],
+  "identity": {
+    "sumAttributed": 0,
+    "billedInputTokens": 0,
+    "absDiff": 0,
+    "ok": null
+  },
+  "pluginVersion": "2.7.4",
+  "selfCmd": "\"G:\\椤圭洰\\dev-tools\\qoder-cn\\plugins\\cache\\qoder-marketplace\\qoder-credits-inspector\\2.7.4\\bin\\credits-inspector.cmd\" cli",
+  "linkHealth": {
+    "matched": 0,
+    "requests": 0,
+    "coverage": 0,
+    "usageSource": null,
+    "breakdown": {
+      "proxy": 0,
+      "transcriptTokens": 0,
+      "transcriptRatio": 0
+    },
+    "logRecords": 0,
+    "lastRecordAt": null,
+    "recentRequests": 0,
+    "proxyErrors": null,
+    "clientAbort": null,
+    "clientAbortMaxMs": null,
+    "upstreamRejected": null,
+    "aborted": null,
+    "truncated": null,
+    "noUsage": null,
+    "slowestMs": null,
+    "supersededFailure": null
+  },
+  "subagents": {
+    "scanned": false,
+    "dir": null,
+    "probedPaths": [
+      "C:\\Users\\LJANX\\.qoder-cn\\projects\\G-----JackDSH\\d2e00fd0-c8d0-4c81-9e0d-bd151417352a\\subagents",
+      "C:\\Users\\LJANX\\.qoder-cn\\projects\\d2e00fd0-c8d0-4c81-9e0d-bd151417352a\\subagents"
+    ],
+    "reason": "no-dir",
+    "count": 0,
+    "items": [],
+    "totals": {
+      "roundTrips": 0,
+      "billedInputTokens": 0,
+      "credits": 0,
+      "originalCredits": 0
+    },
+    "combined": {
+      "roundTrips": 0,
+      "billedInputTokens": 0,
+      "credits": 0,
+      "originalCredits": 0
+    }
+  },
+  "manual": null,
+  "artifacts": {
+    "report": "report.json",
+    "canvas": "{_codesec_telemetry__{_v__d2e00fd0.canvas.tsx"
+  }
+}
