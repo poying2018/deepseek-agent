@@ -14,6 +14,7 @@
     "check:guard": "node scripts/check-runaway-guard.mjs",
     "check:undo": "node scripts/check-undo-store.mjs",
     "check:archive": "node scripts/check-archive-manager.mjs",
+    "check:patches": "node scripts/check-patch-table.mjs",
     "check:startup": "node scripts/check-startup-readiness.mjs",
     "check:dist": "node scripts/verify-dist-compose.mjs",
     "release:check": "node scripts/scan-plugins-status.mjs",

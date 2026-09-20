@@ -110,21 +110,24 @@ export const PLUGIN_RUNTIME_PATCHES = [
     // 改法：给 codearts / lobsterai 的宿主 startLogin 传空 opener，让打开登录页这件事
     // 完全由客户端负责（客户端那次仍会被主进程 setWindowOpenHandler 转成系统浏览器）。
     //
-    // ⚠️ 历史遗留说明（2026-09-19 修）：本条原先锚的是
-    //     `const loginResult = await codearts.login({ refName, accountId: id, pool });`
-    //   上游 0.1.x 之后把阻塞式 `login()` 换成了两步式 `startLogin()`（先拿 loginUrl
-    //   立即返回、后台再等回调），旧锚点**再也匹配不到**，补丁变成静默空转 —— 这正是
-    //   「双浏览器」问题复发、进而 CodeArts 无法登录的根因。现在锚当前结构。
+    // ⚠️ 这条锚点已经来回跳过一次（2026-09-20 再修）：
+    //   · 最早锚 `codearts.login({ refName, accountId: id, pool })`（阻塞式）；
+    //   · 上游改成两步式 `startLogin()`（先拿 loginUrl 立即返回、后台等回调）后旧锚点
+    //     匹配不到，补丁静默空转 ⇒ 双浏览器复发、CodeArts 卡在「等待授权」；
+    //   · 2026-09-19 重新锚到 startLogin；
+    //   · 上游 be6ba1c 之后又回成 `login()`，并新增 `lib/service.js:48 login()` →
+    //     `runOAuthFlow()` → `options.openBrowser ?? openBrowser`（宿主自己开），
+    //     而 jet-hub-rpc.js 调用处不传 opener、同时把 loginUrl 交给客户端开
+    //     ⇒ 再次双开。同文件 buddy 路径上游已经自己写了 `openBrowser: () => { }`，
+    //     只有 codearts 这条是漏网的。
+    // 教训：这类"上游重构导致补丁静默失效"靠人记不住，所以 `pnpm check:patches`
+    // 会把补丁表里每一处 to 文本对着暂存产物逐条断言，失效即门禁失败。
+    // 上游若把这件事原生修好（像 buddy 那样），to 文本会不在 ⇒ 门禁报错，届时删掉本条即可。
     edits: [
       {
         file: 'lib/jet-hub-rpc.js',
-        from: 'const started = await codearts.startLogin({ refName });',
-        to: 'const started = await codearts.startLogin({ refName, openBrowser: () => { } });/* LJANX: 登录页交给客户端开一次，宿主不再重复开 */',
-      },
-      {
-        file: 'lib/jet-hub-rpc.js',
-        from: 'const started = await lobsterai.startLogin({ refName });',
-        to: 'const started = await lobsterai.startLogin({ refName, openBrowser: () => { } });/* LJANX: 同 codearts，避免双浏览器 */',
+        from: 'const loginResult = await codearts.login({ refName, accountId: id, pool });',
+        to: 'const loginResult = await codearts.login({ refName, accountId: id, pool, openBrowser: () => { } });/* LJANX: 登录页交给客户端开一次，宿主不再重复开 */',
       },
     ],
   },
