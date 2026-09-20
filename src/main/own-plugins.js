@@ -36,14 +36,12 @@ export const OWN_PLUGINS = [
   //   · dsh-update-check —— 左下角「检查更新」：查 GitHub Release、显示更新说明、
   //     应用内下载安装包并启动安装程序。
   'dsh-update-check',
-  //   · dsh-runaway-guard —— 单轮失控看门狗。内核没有任何步数上限（dsh-agent-loop
-  //     只有 maxParallelToolCalls），所以失控轮只能靠 agent/pre-step 这道现成的
-  //     waterfall 拦：超阈值先追加一条 plugin 署名的收尾指令，再放行 graceSteps 步
-  //     仍不收就返回 {kind:'reject'}，让 turn/end 以 'blocked' 干净结束。
-  //     零依赖（不 import @deepseek-ai/*），只读 payload 与 session.ownEvents()。
-  //     阈值可在 settings.yaml 的 dsh-runaway-guard 段覆盖，也可用
-  //     DSH_RUNAWAY_GUARD* 环境变量整体关掉（DSH_RUNAWAY_GUARD=0）。
-  'dsh-runaway-guard',
+  // 注：曾内置过 dsh-runaway-guard（单轮失控看门狗，v1.3.9~v1.4.1）。它靠
+  // agent/pre-step 的步数阈值拦失控，但本机 63 轮实测：正常轮次中位数就是 25 步、
+  // P99 239 步、每轮 token 中位 2.98M / P99 56.2M，而当初那次"失控"只有 57 步 /
+  // 11.2M —— 步数与花费都区分不了"重活儿"和"打转"，结果是打断用户正常任务
+  // （"每走一步都要我说继续"）。v1.4.2 起整体移除；老用户 profile 里残留的
+  // bundles 行由 initIsolatedProfile 的失效清理自动剔除（由 pnpm check:profile 钉住）。
 ]
 
 /**

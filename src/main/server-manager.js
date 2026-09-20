@@ -303,6 +303,10 @@ export class ServerManager {
     const cleanedBundles = []
 
     for (const b of bundles) {
+      // 去重是必要的：同一个 bundle 名出现两次会让 cordis 重复加载同一个 entry，
+      // 而"任一 loader entry 出问题会中止整个 web 壳启动"（黑屏）。宿主自己的补入
+      // 逻辑都有 includes 判断，但历史遗留/外部改过的 package.json 可能已经带了重复行。
+      if (cleanedBundles.includes(b)) continue
       if (b === '@deepseek-ai/dsh-base' || b === '@deepseek-ai/dsh-web-app' || b.startsWith('@deepseek-ai/')) {
         cleanedBundles.push(b)
         continue
