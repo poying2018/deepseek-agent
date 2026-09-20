@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { OWN_PLUGINS, ALL_BUILTIN_PLUGINS, OPT_IN_PLUGINS } from './own-plugins.js'
 import { applyCompatPatchesToTree, applyPluginRuntimePatches } from './plugin-compat.js'
 import { computeHiddenProviders } from './model-visibility.js'
+import { migrateUndoStore, resolveUndoRoot } from './undo-store.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -575,6 +576,25 @@ export class ServerManager {
       )
     }
 
+    // 快照存储根：让 dsh-undo-savepoint 的快照跟着「上次用的工作区」走，而不是留在
+    // %APPDATA% 的隔离数据目录里。插件的所有落点都从 LEGACY_ROOT 推导，而它读
+    // DSH_UNDO_ROOT 环境变量，所以这里注入一个变量即可，不必 fork 第三方插件。
+    // 必须赶在 spawn 之前定下来（插件只在挂载时读一次），搬迁也要在内核起来之前做完，
+    // 否则内核的文件监视器会看到半截的存储目录。细节与取舍见 undo-store.js。
+    const undo = resolveUndoRoot({ dshHome: this.dshHome })
+    let undoRootToUse = undo.root
+    if (undo.root) {
+      const migration = migrateUndoStore({ from: join(this.dshHome, 'undo-snapshots'), to: undo.root })
+      if (migration.action === 'failed') {
+        // 搬迁没成：干脆不改地址，让插件继续用完整可用的旧根。历史比"位置对不对"重要。
+        undoRootToUse = ''
+        console.warn(`[ServerManager] 快照存储搬迁未完成，本次沿用旧根：${migration.detail}`)
+      } else if (migration.action === 'migrated') {
+        console.log(`[ServerManager] 快照存储已迁至工作区：${undo.root}`)
+      }
+      console.log(`[ServerManager] 快照存储根：${undoRootToUse || join(this.dshHome, 'undo-snapshots')}（${undo.reason}）`)
+    }
+
     const env = {
       ...process.env,
       PATH: augmentedPath,
@@ -583,6 +603,8 @@ export class ServerManager {
       NODE_PATH: nodePath,
       // 强制隔离环境变量，绝不读取日常 ~/.dsh
       DSH_HOME: this.dshHome,
+      // 快照存储根（见上）。空串时完全不写这个键，让插件用 <DSH_HOME>/undo-snapshots。
+      ...(undoRootToUse ? { DSH_UNDO_ROOT: undoRootToUse } : {}),
       DSH_PORT: String(this.port),
       PORT: String(this.port),
       DSH_WORKSPACE: this.defaultWorkspace,
