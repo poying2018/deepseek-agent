@@ -50,6 +50,15 @@ jobs:
       - name: Prepare bundle (public sources, pinned refs)
         run: node scripts/prepare-bundle.js --source public
 
+      # 兼容补丁是字符串锚点，上游一重构就**静默空转**：日志里一行 ⚠️，包照常出、功能照常坏
+      # （dsh-codearts-auth 的「登录只开一个浏览器」失效过三次，@mlgbnb/dsh-archive-manager
+      # 失效那次会静默删掉用户的归档状态）。本地 check:patches 只能验到开发克隆的字节，
+      # 唯有这一步跑在真实发行输入（按清单 clone 的固定 ref）上，所以它是权威那道闸。
+      # 红掉时的正确处置不是放宽门禁，而是去 plugin-compat.js 重新锚定、或确认上游已原生
+      # 修好后删掉那条补丁（表顶部有墓碑注释记录了先例）。
+      - name: Verify compat patches landed on the release input
+        run: node scripts/check-patch-table.mjs --release-strict
+
       - name: Setup macOS Keychain for Code Signing
         if: matrix.os == 'macos-latest'
         env:

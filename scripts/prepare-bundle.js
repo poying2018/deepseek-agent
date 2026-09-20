@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, cpSync, rmSync, writeFileSync, readFileSync, rea
 import { join, dirname } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import semver from 'semver'
 import { ALL_BUILTIN_PLUGINS } from '../src/main/own-plugins.js'
 import { applyPluginRuntimePatches } from '../src/main/plugin-compat.js'
@@ -393,6 +393,21 @@ function applyPluginBrandAlignment(name, dir) {
 }
 
 
+// 开发克隆的当前提交（短 sha）。取不到就标 local@unknown，至少能看出"来源不可复现"。
+function shortCommit(dir) {
+  try {
+    return execFileSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+// 暂存来源登记（写进 bundle-runtime/staging-provenance.json）：
+// CI 走 --source public（按清单 clone 固定 ref），本地默认 --source auto（优先用
+// ../plugins 下的开发克隆）。同一个补丁在两边对着的**字节不是同一份** —— 这正是
+// v1.4.0 那次假绿的机制：本地 check:patches 全绿，CI 日志里 codearts 那条却未命中。
+// 把来源随产物落盘，检查脚本才可能区分"验的是发行输入"还是"验的是开发克隆"。
+const stagingProvenance = { generatedAt: new Date().toISOString(), source: sourceFlag, plugins: {}, core: {} }
 const pluginSources = [
   ...manifest.map((entry) => ({ entry, inRepo: false })),
   ...inRepoPlugins.map((name) => ({ entry: { name }, inRepo: true })),
@@ -402,6 +417,7 @@ for (const { entry, inRepo } of pluginSources) {
     ? { dir: join(inRepoPluginsDir, entry.name), origin: 'in-repo' }
     : resolvePluginSource(entry)
   if (origin.startsWith('public@')) ensureRepoBuilt(src, entry, origin)
+  stagingProvenance.plugins[entry.name] = origin === 'local' ? `local@${shortCommit(src)}` : origin
   const dest = join(runtimeDir, 'plugins', entry.name)
   mkdirSync(dirname(dest), { recursive: true })
   console.log(`  -> 复制插件: ${entry.name} (${origin})`)
@@ -466,9 +482,16 @@ for (const corePkg of [
 ]) {
   const coreDir = join(rootDir, 'node_modules', ...corePkg.split('/'))
   if (existsSync(coreDir)) {
+    stagingProvenance.core[corePkg] = 'repo-node_modules'
     applyPluginRuntimePatches(corePkg, coreDir)
   }
 }
+
+// 落盘来源登记，供 pnpm check:patches（以及发版 preflight 的严格模式）判断
+// "这次验的到底是不是发行输入"。见上面 stagingProvenance 的注释。
+writeFileSync(join(runtimeDir, 'staging-provenance.json'), JSON.stringify(stagingProvenance, null, 2) + '\n')
+console.log(`  📝 暂存来源已记录：${Object.keys(stagingProvenance.plugins).length} 个插件`
+  + `（其中本地开发克隆 ${Object.values(stagingProvenance.plugins).filter((o) => o.startsWith('local@')).length} 个）`)
 
 // ---- [3/4] 准备内置 CLI 工具 (BrowserSkill bsk)
 console.log('🧩 [2.5/4] 内核兼容性门禁...')

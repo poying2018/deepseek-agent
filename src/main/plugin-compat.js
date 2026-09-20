@@ -95,42 +95,19 @@ function writeStamp(dir, sig, files) {
  * 锚点必须带上相邻注释以保证唯一（单行锚点在压缩过的上游文件里常出现多次）。
  */
 export const PLUGIN_RUNTIME_PATCHES = [
-  {
-    plugin: 'dsh-codearts-auth',
-    desc: '登录只开一个系统浏览器（抑制宿主那一次重复打开）',
-    // ── 为什么要抑制宿主那次打开 ────────────────────────────────────────────
-    // 该插件三个 provider 里有两条登录路径：
-    //   · buddy / workbuddy —— 宿主流程**已经**传 `openBrowser: () => {}`，
-    //     只靠客户端 `window.open(loginUrl)` 开一次（主进程会把它转成系统浏览器）；
-    //   · codearts / lobsterai —— 宿主 `startLogin()` 内部默认**自己再开一次**
-    //     （lib/login.js: `options.openBrowser ?? openBrowser`），而客户端同样会
-    //     `window.open` 一次 ⇒ 系统浏览器被打开**两个**标签页。
-    // 用户在其中「先点到」的那一个里完成授权时，回调可能落在另一个流程的 state 上，
-    // 于是轮询永远等不到 done，界面停在「等待授权」——表现为「CodeArts 用不了」。
-    // 改法：给 codearts / lobsterai 的宿主 startLogin 传空 opener，让打开登录页这件事
-    // 完全由客户端负责（客户端那次仍会被主进程 setWindowOpenHandler 转成系统浏览器）。
-    //
-    // ⚠️ 这条锚点已经来回跳过一次（2026-09-20 再修）：
-    //   · 最早锚 `codearts.login({ refName, accountId: id, pool })`（阻塞式）；
-    //   · 上游改成两步式 `startLogin()`（先拿 loginUrl 立即返回、后台等回调）后旧锚点
-    //     匹配不到，补丁静默空转 ⇒ 双浏览器复发、CodeArts 卡在「等待授权」；
-    //   · 2026-09-19 重新锚到 startLogin；
-    //   · 上游 be6ba1c 之后又回成 `login()`，并新增 `lib/service.js:48 login()` →
-    //     `runOAuthFlow()` → `options.openBrowser ?? openBrowser`（宿主自己开），
-    //     而 jet-hub-rpc.js 调用处不传 opener、同时把 loginUrl 交给客户端开
-    //     ⇒ 再次双开。同文件 buddy 路径上游已经自己写了 `openBrowser: () => { }`，
-    //     只有 codearts 这条是漏网的。
-    // 教训：这类"上游重构导致补丁静默失效"靠人记不住，所以 `pnpm check:patches`
-    // 会把补丁表里每一处 to 文本对着暂存产物逐条断言，失效即门禁失败。
-    // 上游若把这件事原生修好（像 buddy 那样），to 文本会不在 ⇒ 门禁报错，届时删掉本条即可。
-    edits: [
-      {
-        file: 'lib/jet-hub-rpc.js',
-        from: 'const loginResult = await codearts.login({ refName, accountId: id, pool });',
-        to: 'const loginResult = await codearts.login({ refName, accountId: id, pool, openBrowser: () => { } });/* LJANX: 登录页交给客户端开一次，宿主不再重复开 */',
-      },
-    ],
-  },
+  // ── 已删掉的补丁（留墓碑，别再加回来）────────────────────────────────────
+  //  dsh-codearts-auth「登录只开一个系统浏览器」：这条补丁在 2026-09 期间静默失效过
+  //  三次，锚点在 `codearts.login({...})` 与 `startLogin()` 之间来回摆动。
+  //  2026-09-20 对着 gitee master `0ae3359` 复核：CodeArts 分支现在是
+  //  `const started = await codearts.startLogin({ refName })`（两步式：立即返回
+  //  loginUrl，后台等回调），而 `src/service.ts` 的 startLogin **根本不含任何开浏览器
+  //  实现**（宿主侧 openBrowser / shell.openExternal 只存在于 buddy / lobsterai / qoder
+  //  三个 oauth 文件里），登录页由客户端 `plugin-src/client/jet-hub.js` 的
+  //  `window.open(loginUrl, '_blank', 'width=800,height=600')` 开**一次**，
+  //  再被我们的 setWindowOpenHandler 转成系统浏览器 ⇒ 双开问题上游已原生修好。
+  //  v1.4.0 的 CI 日志就是证据：`⚠️ 插件补丁未命中 dsh-codearts-auth/lib/jet-hub-rpc.js`
+  //  （from 与 to 都不在 ⇒ 目标代码已消失），而功能并没有坏。
+  //  如果哪天上游再改回去、或者清单改钉了更早的 ref，看这段注释重新评估要不要补。
   {
     plugin: 'dsh-codearts-auth',
     desc: 'benefit（免费额度）头口径变了的自愈重试：修「codearts: benefit not found」',

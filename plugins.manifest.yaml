@@ -101,6 +101,14 @@ plugins:
   # 完整构建是 prepare（= build:all = tsc + esbuild）。prepare-bundle.js 的
   # ensureRepoBuilt 已改为「对齐 exports 产物目标，缺了依次补跑 build→prepack→prepare」。
   # 本地开发态：../plugins/dsh-codearts-auth 已就地 build:all，--source auto 优先用它。
+  # ⚠️ ref 是 master（移动引用）：CI 每次取当时最新，本地开发克隆可能停在别的提交上，
+  #    两边的**字节可以不同**。带补丁的插件因此必须在发行输入上验（见 prepare-bundle 的
+  #    staging-provenance.json 与 pnpm check:patches --release-strict；v1.4.0 就是靠本地
+  #    暂存假绿过一次，CI 里那条 codearts 补丁实际未命中）。
+  # 补丁表里 codearts 现存一条（benefit 头自愈重试）。曾经另有一条「登录只开一个系统
+  # 浏览器」，2026-09-20 已删除：上游 master 0ae3359 把 codearts 分支改成
+  # codearts.startLogin({ refName }) 两步式，且 src/service.ts 的 startLogin 不开浏览器，
+  # 登录页只由客户端 window.open 开一次 ⇒ 问题上游已原生修好。缘由见 plugin-compat.js 顶部墓碑。
   - name: dsh-codearts-auth
     repo: https://gitee.com/iJetLi/deepseek-harness-codearts.git
     ref: master

@@ -85,16 +85,23 @@ export async function runPreflight(options = {}) {
   try {
     const { stdout } = await execFileAsync(
       process.execPath,
-      [join(jackDshDir, 'scripts', 'check-patch-table.mjs')],
+      [join(jackDshDir, 'scripts', 'check-patch-table.mjs'), '--release-strict'],
       { cwd: jackDshDir, encoding: 'utf8' },
     )
     if (/断言 0 处/.test(stdout)) {
       warnings.push('补丁落地校验一条都没断言到（bundle-runtime 尚未暂存？先跑 pnpm prepare-bundle）')
     }
   } catch (err) {
-    const out = `${err.stdout || ''}\n${err.stderr || ''}`
-    const dead = out.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2))
-    blockers.push(`兼容补丁未落地：${dead.length ? dead.join(', ') : '详见 pnpm check:patches 输出'}`)
+    // 退出码 3 = 本机暂存不算发行输入（含开发克隆，或压根造不出来：github 直连被重置时
+    // prepare-bundle --source public 会中途失败并留下空暂存区）。这不是"补丁坏了"，
+    // 而是"这条检查在本地没有发言权" —— 降到警告，真正的把关在 CI 的同一条门禁上。
+    if (err.code === 3) {
+      warnings.push('兼容补丁落地校验在本机无发言权（暂存含开发克隆/非发行输入）—— CI 会以 --release-strict 再跑一次并把关')
+    } else {
+      const out = `${err.stdout || ''}\n${err.stderr || ''}`
+      const dead = out.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2))
+      blockers.push(`兼容补丁未落地：${dead.length ? dead.join(', ') : '详见 pnpm check:patches 输出'}`)
+    }
   }
 
   // 内核启动加速补丁（@deepseek-ai/dsh-client-modules）的全部价值在于"输出逐字节不变"：

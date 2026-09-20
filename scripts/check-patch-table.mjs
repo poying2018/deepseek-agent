@@ -22,6 +22,26 @@ import { PLUGIN_RUNTIME_PATCHES } from '../src/main/plugin-compat.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
+// ── 严格模式：发版时用（preflight 传 --release-strict）────────────────────────
+// 为什么需要：本地默认 `pnpm prepare-bundle` 是 --source auto，**优先用 ../plugins 下的
+// 开发克隆**；CI 则是 --source public，按清单 clone 固定 ref。两边暂存的字节可以完全不同，
+// 于是"本地全绿、CI 未命中"是结构性的可能 —— v1.4.0 就真的这样：codearts 那条补丁在本地
+// 暂存上命中、check:patches 绿，而 CI 日志里它是 ⚠️ 未命中（上游已换实现）。
+// 判据来自 prepare-bundle 落盘的 bundle-runtime/staging-provenance.json。
+// 注意 in-repo（仓内第一方插件，随仓库提交）与 npm@x（同版本号取同一份 tarball）都算发行输入，
+// 只有 local@<sha>（开发克隆）不是。
+const STRICT = process.argv.includes('--release-strict')
+let provenance = null
+try {
+  provenance = JSON.parse(readFileSync(join(root, 'bundle-runtime', 'staging-provenance.json'), 'utf8'))
+} catch {
+  provenance = null
+}
+const patchedNames = [...new Set(PLUGIN_RUNTIME_PATCHES.map((e) => e.plugin))]
+const devClonePatched = provenance
+  ? patchedNames.filter((n) => String(provenance.plugins?.[n] ?? '').startsWith('local@'))
+  : []
+
 /** 同一个插件的产物可能在这三处之一：暂存区、仓库依赖、已安装 App 的 profile。 */
 const CANDIDATE_ROOTS = [
   join(root, 'bundle-runtime', 'plugins'),
@@ -76,6 +96,26 @@ for (const entry of PLUGIN_RUNTIME_PATCHES) {
   }
   const landed = entry.edits.length
   console.log(`  ✅ ${entry.plugin}：${landed} 处全部在位 —— ${entry.desc}`)
+}
+
+// ── 来源核验：落地结论只对"这一份暂存"成立 ──────────────────────────────────
+if (!provenance) {
+  console.log('  ⚠️ 没有 bundle-runtime/staging-provenance.json —— 暂存出自旧版 prepare-bundle 或手工拼的，')
+  console.log('     无法判断上面这些断言验的是不是发行输入（重跑 pnpm prepare-bundle 即生成）')
+  if (STRICT) {
+    console.error('△ 严格模式：本机暂存无法认定为发行输入（退出码 3）。CI 里 prepare-bundle 走 --source public，')
+    console.error('   同一条门禁会真正把关；本机若在断网/代理不可用的环境下造不出发行输入，这是预期结果。')
+    process.exit(3)
+  }
+} else if (devClonePatched.length > 0) {
+  console.log(`  ⚠️ ${devClonePatched.length} 个带补丁的插件是从本地开发克隆暂存的：${devClonePatched.join(', ')}`)
+  console.log('     它们的"已落地"只对开发克隆那一份字节成立，CI 按清单 ref 取到的可能是另一份。')
+  if (STRICT) {
+    console.error('△ 严格模式：本机暂存含开发克隆，不算发行输入（退出码 3）—— 由 CI 的同一条门禁把关。')
+    process.exit(3)
+  }
+} else {
+  console.log(`  ✅ 带补丁的插件全部来自发行输入（prepare-bundle --source ${provenance.source}）`)
 }
 
 console.log(`\n断言 ${checked} 处，跳过 ${skipped} 处（产物不在本机）`)
