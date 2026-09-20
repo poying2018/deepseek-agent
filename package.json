@@ -15,6 +15,7 @@
     "check:archive": "node scripts/check-archive-manager.mjs",
     "check:patches": "node scripts/check-patch-table.mjs",
     "check:profile": "node scripts/check-profile-prune.mjs",
+    "check:composer": "node scripts/check-composer-guard.cjs",
     "check:kernelspeed": "node scripts/check-client-modules-equiv.mjs",
     "check:startup": "node scripts/check-startup-readiness.mjs",
     "check:dist": "node scripts/verify-dist-compose.mjs",

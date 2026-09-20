@@ -172,52 +172,20 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('visibilitychange', syncPauseStyle)
   syncPauseStyle()
 
-  // ── 新建对话时「点击输入框没反应」的兜底 ────────────────────────────────
-  // 现象：新建会话后点输入框（或输入框周围那圈留白）没有焦点、打不了字。
-  // 根因是命中测试被**更上层的元素**截走了：主题/插件会在内容区叠定位层（spotlight、
-  // 环境层、面板包裹层等），或者输入框外的 composer 内边距本身不转发点击。
-  // 这里的处理很克制，只在两种明确情形下补一次 focus，不拦事件、不改 DOM：
-  //   ① 点击点落在某个输入域（textarea/contenteditable）的矩形**之内**，但事件目标
-  //      却不是它 —— 说明中间隔着不该吃点击的层；
-  //   ② 点击点落在 composer 容器（[data-dsh-inputbar] 或类名含 inputbar 的包裹层）
-  //      的内边距上，目标是容器本身而非输入域。
-  // 已经点在真正的交互元素上时一律放行（return），不干扰正常行为。
-  const INTERACTIVE_SELECTOR =
-    'input, textarea, select, button, a[href], [contenteditable="true"], [role="button"], [role="menuitem"], [role="option"], [role="combobox"], [role="tab"], [role="dialog"], [aria-modal="true"]'
-  const findComposerField = (root) => {
-    const scope = root && root.querySelectorAll ? root : document
-    return scope.querySelector('textarea, [contenteditable="true"]')
+  // ── 输入框点击兜底 + 无响应归因 ──────────────────────────────────────────
+  // 逻辑与成因都在 ./composer-guard.cjs（纯函数，可被 pnpm check:composer 用假 DOM 断言）。
+  // 这里只负责注入真实环境与"把归因交给主进程落盘"：渲染层不碰文件系统。
+  // 载荷是一组封闭的属性名/枚举值，不含任何用户输入内容（白名单由测试钉住）。
+  try {
+    const { installComposerGuard } = require('./composer-guard.cjs')
+    installComposerGuard({
+      window,
+      document,
+      send: (payload) => {
+        try { ipcRenderer.send('ljanx:composer-diag', payload) } catch {}
+      },
+    })
+  } catch (error) {
+    console.error('[composer-guard] 装载失败，输入框兜底不可用:', error && error.message)
   }
-  window.addEventListener(
-    'pointerdown',
-    (e) => {
-      const target = e.target
-      if (!(target instanceof Element)) return
-      if (target.closest(INTERACTIVE_SELECTOR)) return
-
-      // ① 命中点落在某个输入域矩形内却没打到它
-      const fields = document.querySelectorAll('textarea, [contenteditable="true"]')
-      for (const field of fields) {
-        const r = field.getBoundingClientRect()
-        if (r.width === 0 || r.height === 0) continue
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) continue
-        try {
-          field.focus()
-        } catch {}
-        return
-      }
-
-      // ② 点在 composer 容器留白上（容器是 [data-dsh-inputbar] 或类名含 inputbar 的祖先）
-      const composer =
-        target.closest('[data-dsh-inputbar]') ||
-        target.closest('[class*="inputbar"], [class*="InputBar"], [class*="composer"], [class*="Composer"]')
-      if (!composer) return
-      const field = findComposerField(composer)
-      if (!field) return
-      try {
-        field.focus()
-      } catch {}
-    },
-    true
-  )
 })
