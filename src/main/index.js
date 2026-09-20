@@ -858,10 +858,27 @@ app.whenReady().then(async () => {
   if (!gotTheLock) return
 
   try {
+    // 底座版本必须读出来，不能再写死：这里曾经硬编码 v0.1.2-rc.1，而内核早已升到
+    // 0.1.5-rc.2 —— 关于面板说出的版本号是错的，用户排查问题时会被带去错的轨道。
+    // 查找顺序与 server-manager 里定位内核 bin.js 的一致：安装版在 <resources>/node_modules
+    // （随 asar），开发态在仓库 node_modules。读不到就整条省掉，宁可少一行也不报假版本。
+    const kernelPkgCandidates = [
+      process.resourcesPath ? join(process.resourcesPath, 'node_modules') : '',
+      join(__dirname, '../../node_modules'),
+    ].filter(Boolean)
+    let kernelVersion = ''
+    for (const root of kernelPkgCandidates) {
+      const pkgJson = join(root, '@deepseek-ai', 'dsh', 'package.json')
+      if (!existsSync(pkgJson)) continue
+      try {
+        const v = JSON.parse(readFileSync(pkgJson, 'utf8')).version
+        if (typeof v === 'string' && v) { kernelVersion = v; break }
+      } catch {}
+    }
     app.setAboutPanelOptions({
       applicationName: APP_NAME,
       applicationVersion: `v${app.getVersion()}`,
-      version: 'DeepSeek Harness 底座 v0.1.2-rc.1',
+      ...(kernelVersion ? { version: `DeepSeek Harness 底座 v${kernelVersion}` } : {}),
       copyright: 'LJANX · 基于 DeepSeek Harness 官方框架构建',
     })
     await checkDataDirectory(app.getPath('userData'))
