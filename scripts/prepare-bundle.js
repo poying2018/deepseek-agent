@@ -458,9 +458,11 @@ for (const { entry, inRepo } of pluginSources) {
 //  · dsh-client-ui-settings-general  —— 修设置页侧边栏超出视口无法滚动
 //  · dsh-api-session-controller      —— 默认隐藏未鉴权第三方 provider 的模型
 //    （宿主壳在启动内核时通过 LJANX_HIDDEN_MODELS 环境变量喂名单）
+//  · dsh-client-modules              —— 内核启动加速（combo 构建的纯冗余 CPU）
 for (const corePkg of [
   '@deepseek-ai/dsh-client-ui-settings-general',
   '@deepseek-ai/dsh-api-session-controller',
+  '@deepseek-ai/dsh-client-modules',
 ]) {
   const coreDir = join(rootDir, 'node_modules', ...corePkg.split('/'))
   if (existsSync(coreDir)) {

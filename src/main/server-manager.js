@@ -368,6 +368,7 @@ export class ServerManager {
     // 不属于 profile，所以不能靠 applyCompatPatchesToTree 扫到，必须显式点名。
     //  · dsh-client-ui-settings-general    —— 修「插件多时设置侧栏无法滚动」
     //  · dsh-api-session-controller        —— 修「未鉴权的第三方模型仍出现在选择器里」
+    //  · dsh-client-modules                —— 内核启动加速（combo 构建的纯冗余 CPU）
     //
     // ⚠️ 目录解析（2026-09-19 复核）：内核子进程是用 `NODE_PATH` 找这些包的，而
     // NODE_PATH 实际落在 **app.asar 内部**（`<resources>/app/node_modules` 并不存在，
@@ -387,6 +388,7 @@ export class ServerManager {
       for (const pkg of [
         '@deepseek-ai/dsh-client-ui-settings-general',
         '@deepseek-ai/dsh-api-session-controller',
+        '@deepseek-ai/dsh-client-modules',
       ]) {
         for (const root of coreCandidates) {
           const dir = join(root, ...pkg.split('/'))

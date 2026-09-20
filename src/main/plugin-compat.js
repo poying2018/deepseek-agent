@@ -693,6 +693,39 @@ export const PLUGIN_RUNTIME_PATCHES = [
       },
     ],
   },
+  {
+    plugin: '@deepseek-ai/dsh-client-modules',
+    desc: '内核启动加速：客户端模块组合构建（combo + source map）的纯冗余 CPU',
+    // ── 依据（2026-09-20 实测，--cpu-prof 采样内核 web 启动）────────────────
+    // 内核每次启动都要把所有插件的 client.js 拼成 combo 脚本 + source map，且每个
+    // bundle 被处理两遍（批 combo 一遍 + 单件 combo 一遍），无磁盘缓存。采样显示
+    // @deepseek-ai/dsh-client-modules 这一个包占启动 CPU 的 48.7%，其中两个纯浪费点：
+    //   · newlineCount（self 21.3%）：逐「码点」迭代数换行（for...of 生成器），
+    //     MB 级字符串上极慢 —— 换成 indexOf 原生扫描，语义完全等价（'\n' 不跨码点）；
+    //   · identitySectionMap（self 9.8%，并抬高 buildCombo 的 17.2% 与 GC）：
+    //     为每一行建一个单元素数组再 join —— 换成 repeat 拼接，输出逐字节相同
+    //     （0 行时两边同为空串）。
+    // 实测本机 A/B（同一份 dsh-data 副本、同一判据 TCP ready）：上游 7.3/7.3/7.6s
+    // → 补丁后 4.5/4.8/4.8s。主进程在 serverManager.start() 前窗口一直停在启动占位页，
+    // 所以这 2.8s 是用户看得见的。
+    // 不动内核源码包，走补丁通道；两处都是"输出恒等"的纯性能改写，无行为变化，
+    // 由 pnpm check:kernelspeed 常驻守着（写法对齐 + 真值逐字节比对）。
+    edits: [
+      {
+        file: 'lib/index.js',
+        from: '\tfor (const char of value) if (char === "\\n") count += 1;',
+        to: '\tfor (let i = value.indexOf("\\n"); i !== -1; i = value.indexOf("\\n", i + 1)) count += 1;/* LJANX perf: for...of 逐码点迭代 → indexOf 原生扫描，输出等价 */',
+      },
+      {
+        file: 'lib/index.js',
+        from: '\tconst mappings = Array.from({ length: newlineCount(source) }, (_, index) => index === 0 ? "AAAA" : "AACA").join(";");',
+        toLines: [
+          '\tconst __ljanxLines = newlineCount(source);',
+          '\tconst mappings = __ljanxLines === 0 ? "" : "AAAA" + ";AACA".repeat(__ljanxLines - 1);/* LJANX perf: 免去逐行建数组再 join */',
+        ],
+      },
+    ],
+  },
 ]
 
 /**

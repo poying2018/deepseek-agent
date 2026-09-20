@@ -36,7 +36,7 @@ async function git(cwd, args) {
  * 1. 发版门禁检查 (preflight)
  */
 export async function runPreflight(options = {}) {
-  console.log('🔍 [1/4] 正在执行插件生态 Git 与同步门禁检查...')
+  console.log('🔍 [1/5] 正在执行插件生态 Git 与同步门禁检查...')
   const scanResult = await scanAllPlugins({ fetch: Boolean(options.fetch) })
   
   const blockers = []
@@ -62,7 +62,7 @@ export async function runPreflight(options = {}) {
   }
 
   // 检查 DeepSeek Agent 自身仓库状态
-  console.log('🔍 [2/4] 正在检查 DeepSeek Agent 自身仓库状态...')
+  console.log('🔍 [2/5] 正在检查 DeepSeek Agent 自身仓库状态...')
   const statusRes = await git(jackDshDir, ['status', '--porcelain'])
   const dshDirty = statusRes.ok && statusRes.stdout
     ? statusRes.stdout.split('\n').filter(Boolean)
@@ -72,7 +72,7 @@ export async function runPreflight(options = {}) {
   }
 
   // 检查已打包插件与清单对齐
-  console.log('🔍 [3/4] 正在校验 plugins.manifest.yaml 清单完整性...')
+  console.log('🔍 [3/5] 正在校验 plugins.manifest.yaml 清单完整性...')
   const missingInManifest = scanResult.plugins.filter((p) => p.isGit && !p.inManifest)
   if (missingInManifest.length > 0) {
     warnings.push(`以下自研插件未在 plugins.manifest.yaml 声明: ${missingInManifest.map((p) => p.name).join(', ')}`)
@@ -81,7 +81,7 @@ export async function runPreflight(options = {}) {
   // 检查兼容补丁是否真的落在了暂存产物上。
   // 补丁是字符串锚点，上游一重构就**静默空转**：构建日志里一行 ⚠️，产物照常出、功能照常坏。
   // 这已经咬过两次（codearts 登录双浏览器、archive-manager 静默删归档状态），所以进门禁。
-  console.log('🔍 [4/4] 正在校验兼容补丁表的落地情况...')
+  console.log('🔍 [4/5] 正在校验兼容补丁表的落地情况...')
   try {
     const { stdout } = await execFileAsync(
       process.execPath,
@@ -95,6 +95,20 @@ export async function runPreflight(options = {}) {
     const out = `${err.stdout || ''}\n${err.stderr || ''}`
     const dead = out.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2))
     blockers.push(`兼容补丁未落地：${dead.length ? dead.join(', ') : '详见 pnpm check:patches 输出'}`)
+  }
+
+  // 内核启动加速补丁（@deepseek-ai/dsh-client-modules）的全部价值在于"输出逐字节不变"：
+  // 一旦不等价，它就不再是性能优化，而是静默改动浏览器拿到的 client combo 与 sourceMappingURL。
+  // check:patches 只断言补丁在位，断言不了等价性，所以这里补一道真值对照（拿上游实现跑同一批真实 bundle）。
+  console.log('🔍 [5/5] 正在校验内核启动加速补丁的输出恒等性...')
+  try {
+    await execFileAsync(
+      process.execPath,
+      [join(jackDshDir, 'scripts', 'check-client-modules-equiv.mjs')],
+      { cwd: jackDshDir, encoding: 'utf8' },
+    )
+  } catch (err) {
+    blockers.push(`内核加速补丁不再等价于上游：${`${err.stdout || ''}\n${err.stderr || ''}`.split('\n').filter((l) => l.trim().startsWith('❌')).join(' ; ') || '详见 pnpm check:kernelspeed 输出'}`)
   }
 
   const passed = blockers.length === 0
