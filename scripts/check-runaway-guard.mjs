@@ -89,7 +89,7 @@ for (const key of [
 
 const CFG = { maxSteps: 25, graceSteps: 4, repeatLimit: 3, repeatHard: 5 }
 
-console.log('▶ 1. 默认阈值下的逐级反应（工具轮，每步调用各不相同）')
+console.log('▶ 1. 逐级反应（显式阈值 maxSteps=25 / grace=4，工具轮，每步调用各不相同）')
 {
   const { logs, step } = harness(CFG, steps(1, 24))
   check(logs.some(([l, m]) => l === 'info' && /armed/.test(m)), '装载并打了 armed 日志')
@@ -113,6 +113,28 @@ console.log('▶ 1. 默认阈值下的逐级反应（工具轮，每步调用各
   check(logs.some(([, m]) => /已中止/.test(m) && /turn=1 step=29/.test(m)), '关轮日志带 session/turn/step')
 
   check((await step(2, 1)).messages.length === 1, '下一轮从第 1 步起重新计数')
+}
+
+console.log('▶ 1b. 出厂默认值不再掐断长任务（v1.4.1 回归：用户报"每走一步都要我说继续"）')
+{
+  // 本机 63 个真实轮次的取证：中位数 25 步、P99 239 步，且那些长轮次都是正常完成的。
+  // 默认配置（不传任何 config）必须对"长但有效"的活儿完全不动手。
+  const long239 = harness({}, steps(1, 238))
+  for (const n of [25, 26, 29, 100, 239]) {
+    const r = await long239.step(1, n)
+    check(r.kind === 'enter' && r.messages.length === 1, `默认配置下第 ${n} 步不注入、不关轮`)
+  }
+  check(!long239.logs.some(([, m]) => /注入收尾指令|已中止/.test(m)), '整场下来一行介入日志都不该有')
+
+  // 但"同一个调用原样重复"这个零误伤信号仍然有效（默认 4 劝 / 8 掐）
+  const spin4 = await harness({}, spinning(9, 4)).step(9, 5)
+  check(spin4.kind === 'enter' && spin4.messages.length === 2
+    && /连续 4 次完全相同的工具调用/.test(spin4.messages[1].content[0].text),
+    '默认软阈值：同一调用连重 4 次 → 注入收尾指令')
+  const spin8 = await harness({}, spinning(9, 8)).step(9, 9)
+  check(spin8.kind === 'reject', '默认硬阈值：连重 8 次 → 关掉这一轮')
+  const spin3 = await harness({}, spinning(9, 3)).step(9, 4)
+  check(spin3.messages.length === 1, '连重 3 次（未到默认软阈值）不动手')
 }
 
 console.log('▶ 2. 原地打转（同一条工具调用反复执行）')
@@ -165,12 +187,18 @@ console.log('▶ 4. 配置与环境变量')
   check((await tight.step(1, 6)).messages?.[1] !== undefined, 'env 可以把阈值压到 6 步')
   delete process.env.DSH_RUNAWAY_GUARD_MAX_STEPS
 
-  const junk = harness({ maxSteps: 'abc', graceSteps: -9 }, steps(1, 25))
-  check((await junk.step(1, 25)).messages?.[1] !== undefined, '坏配置值退回默认（25 步），不会变成 0 步就掐')
+  const junk = harness({ maxSteps: 'abc', graceSteps: -9 }, steps(1, 30))
+  check((await junk.step(1, 25)).messages?.[1] === undefined,
+    '坏配置值退回默认（0 = 不按步数设限），不会退化成"第 25 步就掐"')
+  check((await junk.step(1, 30)).kind === 'enter', '坏配置值下长任务照常放行')
 
   const tiny = harness({ maxSteps: 1 }, steps(1, 4))
-  check((await tiny.step(1, 3)).messages?.[1] === undefined, 'maxSteps=1 被夹到下限，第 3 步还不动手')
-  check((await tiny.step(1, 4)).messages?.[1] !== undefined, '下限 4 步处开始劝退')
+  check((await tiny.step(1, 1)).messages?.[1] !== undefined,
+    '用户显式写 maxSteps=1 就真的第 1 步开始劝退（不再被下限吃掉）')
+
+  const negative = harness({ maxSteps: -5 }, steps(1, 30))
+  check((await negative.step(1, 25)).messages?.[1] === undefined,
+    '负数被夹到 0 = 关闭步数闸门，而不是"任何步都超"')
 
   const eight = spinning(1, 8)
   const inverted = harness({ repeatLimit: 8, repeatHard: 2 }, eight)

@@ -29,6 +29,17 @@
 //   两道闸门都只在「本轮最后一次模型输出确实又点了工具」时才检查——模型已经
 //   说完、循环正要自然收口时一律不插手（见 scanTail 的 toolDriven）。
 //
+// ── v1.4.1 的关键调整：步数闸门默认关掉 ────────────────────────────────────
+// v1.3.9 上线后用户反馈「每执行一步就要我说继续才会继续下去」。对着本机 22 会话 /
+// 63 轮取证（脚本与数字见 DEFAULTS.maxSteps 的注释）：中位数就是 25 步、P99 239 步，
+// 每轮 token 中位 2.98M、P99 56.2M —— **都比当初那次"失控"（57 步 / 11.2M）更高**。
+// 也就是说按步数或花费设阈值，掐掉的正是用户的正事：软阈值那条"停止调用工具"一旦
+// 注入，模型立刻收尾，剩下的活儿必须由用户再说一次"继续"才继续 —— 半个轮次被打断一次。
+// 所以默认值改成 maxSteps=0（不设步数上限），只留「同一工具调用原样连重」这个
+// 在 63 轮里最长连续只有 1 次、误伤率为零的信号。代价要说清楚：像当初那次
+// "93 个不同调用、每个都在动但整体没进展"的失控，现在**不会被自动拦下**——
+// 因为在本机的数据里，它与正常重活儿在可观测信号上无法区分。宁可漏拦，不可拦错。
+//
 // 误伤防线：**只要这一步已经领取了真人输入（source.kind === 'user'）就完全放行。**
 // 用户在手动 steer / 排队输入，说明人在盯着，此时按「失控」处理是最难接受的误报。
 //
@@ -49,14 +60,27 @@ export const inject = []
 
 const DEFAULTS = {
   enabled: true,
-  /** 软阈值：单轮步数到这里开始劝退。实测失控轮 57 步，正常重任务很少过 20。 */
-  maxSteps: 25,
-  /** 劝退之后额外放行的步数；用完还没收就硬关。 */
+  /**
+   * 软阈值：单轮步数到这里开始劝退。**默认 0 = 不按步数设限**，原因见下面这段实测。
+   *
+   * 2026-09-20 对着本机 22 个会话 / 63 个轮次量了一遍真实工作流：
+   *   每轮步数  中位数 25｜P75 34｜P90 55｜P95 86｜P99 239（且那轮 239 步是正常完成的）
+   *   每轮 token（in+out+cache 累加）中位数 2.98M｜P90 15.6M｜P99 56.2M
+   * 而当初促成这个插件的那次失控只有 57 步 / 11.2M token —— **低于本机的日常水位**。
+   * 于是"步数到 25 就劝退"这个默认值（v1.3.9 上线值）会把大约一半的正常轮次打断：
+   * 现场表现为模型被注入"预算已经用完，停止调用工具"后立刻收尾，用户只能再说一次
+   * "继续"才能往下走 —— 也就是用户报的"每执行一步就要我说继续"。
+   * 结论：花费量和步数都**不是**失控的判据（区分不了"重活儿"和"打转"），
+   * 只有"同一个工具调用原样重复"才是 —— 而它在 63 轮里的最长连续值是 1。
+   * 需要硬上限的人可以用 settings 或 DSH_RUNAWAY_GUARD_MAX_STEPS 显式打开。
+   */
+  maxSteps: 0,
+  /** 劝退之后额外放行的步数；用完还没收就硬关。仅在 maxSteps > 0 时有意义。 */
   graceSteps: 4,
   /** 软阈值：完全相同的工具调用连续出现这么多次也算原地打转。 */
-  repeatLimit: 3,
+  repeatLimit: 4,
   /** 硬阈值：相同工具调用出现到这个次数直接关轮（再重复下去只是烧钱）。 */
-  repeatHard: 5,
+  repeatHard: 8,
 }
 
 const PLUGIN_ID = 'dsh-runaway-guard'
@@ -81,7 +105,7 @@ function resolveConfig(raw) {
         : DEFAULTS.enabled
   return {
     enabled,
-    maxSteps: intOf(env.DSH_RUNAWAY_GUARD_MAX_STEPS ?? src.maxSteps, DEFAULTS.maxSteps, 4, 1000),
+    maxSteps: intOf(env.DSH_RUNAWAY_GUARD_MAX_STEPS ?? src.maxSteps, DEFAULTS.maxSteps, 0, 1000),
     graceSteps: intOf(env.DSH_RUNAWAY_GUARD_GRACE_STEPS ?? src.graceSteps, DEFAULTS.graceSteps, 1, 100),
     repeatLimit: intOf(env.DSH_RUNAWAY_GUARD_REPEAT_LIMIT ?? src.repeatLimit, DEFAULTS.repeatLimit, 2, 100),
     // 硬阈值必须晚于软阈值，否则第一次触发就是关轮，等于没有劝退这一步。
@@ -183,6 +207,7 @@ export function apply(ctx, config = {}) {
     return
   }
 
+  const stepCapOn = cfg.maxSteps > 0
   const hardSteps = cfg.maxSteps + cfg.graceSteps
 
   ctx.on('agent/pre-step', (payload, next) => {
@@ -214,8 +239,8 @@ export function apply(ctx, config = {}) {
         // 'completed' 改成 'blocked'。
         if (!toolDriven) return decision
 
-        const stepOverSoft = step >= cfg.maxSteps
-        const stepOverHard = step >= hardSteps
+        const stepOverSoft = stepCapOn && step >= cfg.maxSteps
+        const stepOverHard = stepCapOn && step >= hardSteps
         const repeatSoft = count >= cfg.repeatLimit
         const repeatHard = count >= cfg.repeatHard
         const label = agent.id ?? 'unknown'
@@ -256,7 +281,7 @@ export function apply(ctx, config = {}) {
   })
 
   ctx.logger.info(
-    `${PLUGIN_ID}: armed (maxSteps=${cfg.maxSteps}, grace=${cfg.graceSteps}, `
-    + `repeat=${cfg.repeatLimit}/${cfg.repeatHard})`,
+    `${PLUGIN_ID}: armed (步数上限=${stepCapOn ? `${cfg.maxSteps}+${cfg.graceSteps}` : '关闭（默认：实测证明步数不是失控判据，见文件头）'}, `
+    + `同一调用连重=${cfg.repeatLimit}/${cfg.repeatHard})`,
   )
 }
