@@ -18,6 +18,34 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PICKER_BROWSE_BACKEND = '@deepseek-ai/dsh-host-directory-picker-browse'
 const PICKER_BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
+/**
+ * 随包分发、但上游默认 profile 不挂的「内核自带能力」——通过 cordis.patch.yml 托管区
+ * 的 insert 行启用（**不是** bundles！）。
+ *
+ * 为什么必须走 patch 行：内核要求 bundles 里每个包都在自己的 package.json 声明
+ * `dsh.bundle`，而这些能力包没有（实测报
+ * `dsh: profile bundle "@deepseek-ai/dsh-repeat-tool-reminder" declares no dsh.bundle
+ * in its package.json` 并中止整个 web 壳启动）。`@deepseek-ai/dsh-web` /
+ * `dsh-web-fetch-http` 也是同样处理的（见 webCapabilityPatchLines）。
+ *
+ * 目前一条：
+ *   · dsh-repeat-tool-reminder —— 上游自带的「原地打转提示」。挂在 `tools/post-execute`，
+ *     同一个工具用完全相同的参数连续调用达到阈值（默认 3 / 5 / 8 次）时，往上下文里
+ *     注入一条提示（首轮一句话，之后点名工具、连重次数与参数摘要），要求模型换做法或
+ *     据已有证据收尾。它**从不结束回合**（契约由 pnpm check:profile 钉住）—— 这正是
+ *     我们撤掉自研 dsh-runaway-guard 的理由：那个插件返回 reject 掐轮，把用户正常的一两
+ *     百步长任务也打断成「必须再说一句继续」。63 轮实测：按步数/花费设阈值切不开
+ *     「重活儿」与「打转」（正常轮次中位 25 步、P99 239 步），而「同一调用原样连重」
+ *     误伤率为零（真实最长连续值 = 1）。
+ */
+const KERNEL_CAPABILITIES = [
+  {
+    id: 'repeat-tool-reminder',
+    pkg: '@deepseek-ai/dsh-repeat-tool-reminder',
+    comment: '# repeat-tool-reminder：同一工具调用原样连重 3/5/8 次时注入提示（只提示，不结束回合）。',
+  },
+]
+
 /** LJANX 托管补丁区的起止标记：每次启动按平台/环境重写，能把历史上写坏的内容自动纠正。 */
 const MANAGED_BEGIN = '# >>> LJANX 托管区：启动时自动重写，请勿手工编辑 >>>'
 const MANAGED_END = '# <<< LJANX 托管区 <<<'
@@ -308,6 +336,16 @@ export class ServerManager {
       // 逻辑都有 includes 判断，但历史遗留/外部改过的 package.json 可能已经带了重复行。
       if (cleanedBundles.includes(b)) continue
       if (b === '@deepseek-ai/dsh-base' || b === '@deepseek-ai/dsh-web-app' || b.startsWith('@deepseek-ai/')) {
+        // 内核自带的行也有一种**必炸**形态：bundles 里的包没在自家 package.json 声明
+        // dsh.bundle，内核会直接 `declares no dsh.bundle` 中止整个 web 壳启动（黑屏，
+        // 实测踩过：把 dsh-repeat-tool-reminder 写进 bundles 就是这样）。这里做一次
+        // 就地剔除。只在"包能读到 package.json"时判断 —— 读不到不代表坏（profile 的
+        // 解析链接是内核启动时才修复的），那种情况保留原行，避免误删核心能力。
+        const pkgJson = this.readPackageJson(b)
+        if (pkgJson && pkgJson.dsh?.bundle === undefined) {
+          console.log(`[ServerManager] 剔除会让内核起不来的 bundles 行（未声明 dsh.bundle）: ${b}`)
+          continue
+        }
         cleanedBundles.push(b)
         continue
       }
@@ -447,7 +485,7 @@ export class ServerManager {
       }
     }
 
-    const groups = [this.pickerPatchLines(), clientHmrPatchLines(), webCapabilityPatchLines()].filter((group) => group.length > 0)
+    const groups = [this.pickerPatchLines(), clientHmrPatchLines(), webCapabilityPatchLines(), this.capabilityPatchLines()].filter((group) => group.length > 0)
     const managed = groups.flatMap((group, index) => (index === 0 ? group : ['', ...group]))
     // 先把旧品牌标记升级为新标记，保证存量 profile 的旧托管区能被正确识别并整段重写
     const upgraded = raw
@@ -480,6 +518,54 @@ export class ServerManager {
         existsSync(join(root, ...pkg.split('/'), 'package.json')),
       ),
     )
+  }
+
+  /** 内核自带包可能住的几个 node_modules 根（安装版在 resources 下，开发态在仓库里）。 */
+  nodeModuleRoots() {
+    return [
+      join(this.runtimePath, '../app/node_modules'),
+      join(__dirname, '../../node_modules'),
+      process.resourcesPath ? join(process.resourcesPath, 'node_modules') : '',
+      join(this.dshHome, 'profiles', 'node_modules'),
+      join(this.dshHome, 'profiles', 'web', 'node_modules'),
+    ].filter(Boolean)
+  }
+
+  /**
+   * 找一个包在本机的 package.json（取第一个能解析到的根）。取不到返回 null ——
+   * 调用方必须把"取不到"与"取到但不合规"分开处理：内核启动时会自己修复 profile 的
+   * 解析链接（module fallback），此刻看不到不等于永远看不到，误判成坏行去剔除反而
+   * 会改变行为。
+   */
+  readPackageJson(pkg) {
+    for (const root of this.nodeModuleRoots()) {
+      const file = join(root, ...pkg.split('/'), 'package.json')
+      if (!existsSync(file)) continue
+      try {
+        return JSON.parse(readFileSync(file, 'utf8'))
+      } catch {}
+    }
+    return null
+  }
+
+  /**
+   * 托管区里「内核自带能力」的 insert 行：解析不到包的条目整条不写。
+   * 宁可少一个能力，也不能写一条会让 web 壳起不来的行。
+   */
+  capabilityPatchLines() {
+    const lines = []
+    for (const cap of KERNEL_CAPABILITIES) {
+      const pkg = this.readPackageJson(cap.pkg)
+      if (!pkg) continue
+      if (pkg.dsh?.bundle !== undefined) {
+        // 声明了 dsh.bundle 的包该走 bundles 清单，而不是 patch 行；出现在这里
+        // 说明 KERNEL_CAPABILITIES 登记错了（反过来也会炸：bundles 里的行必须有 dsh.bundle）。
+        console.warn(`[ServerManager] 能力条目 ${cap.pkg} 声明了 dsh.bundle，应按 bundles 挂载，跳过`)
+        continue
+      }
+      lines.push(cap.comment, `- id: ${cap.id}`, `  name: '${cap.pkg}'`, '  disabled: false')
+    }
+    return lines
   }
 
   /**

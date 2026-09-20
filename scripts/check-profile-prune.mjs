@@ -122,5 +122,89 @@ console.log('▶ 4. 发行清单自检：不该再有已删除插件的残留注
   ok(existsSync(join(root, 'builtin-plugins')), 'builtin-plugins 目录在位')
 }
 
+console.log('▶ 5. 内核自带能力：走 cordis.patch.yml 托管区，绝不进 bundles')
+{
+  // 放进 bundles 会让内核直接起不来（实测：`declares no dsh.bundle` 中止 web 壳启动），
+  // 所以这里同时断言"patch 行有"与"bundles 行无"。
+  const f = makeFixture({ bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], runtimePlugins: [] })
+  f.sm.initIsolatedProfile()
+  const patch = readFileSync(join(f.web, 'cordis.patch.yml'), 'utf8')
+  const b = readBundles(f.web)
+  ok(patch.includes("name: '@deepseek-ai/dsh-repeat-tool-reminder'"), '托管区里有反打转提示的 insert 行')
+  ok(!b.includes('@deepseek-ai/dsh-repeat-tool-reminder'), '它没有被写进 bundles（写进去会黑屏）')
+  f.sm.initIsolatedProfile()
+  const patch2 = readFileSync(join(f.web, 'cordis.patch.yml'), 'utf8')
+  ok((patch2.match(/dsh-repeat-tool-reminder/g) || []).length === (patch.match(/dsh-repeat-tool-reminder/g) || []).length,
+    '连跑两次托管区不重复追加')
+  rmSync(f.home, { recursive: true, force: true })
+
+  // 包解析不到（内核升版删了它）→ 整行不写，而不是留一条起不来的配置
+  const g = makeFixture({ bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], runtimePlugins: [] })
+  g.sm.readPackageJson = () => null
+  g.sm.initIsolatedProfile()
+  const patchG = readFileSync(join(g.web, 'cordis.patch.yml'), 'utf8')
+  ok(!patchG.includes('dsh-repeat-tool-reminder'), '解析不到时不写这条能力行（宁可少个能力，不可砖掉启动）')
+  rmSync(g.home, { recursive: true, force: true })
+}
+
+console.log('▶ 6. bundles 里「未声明 dsh.bundle」的内核行必须被剔除（那是必炸形态）')
+{
+  // @deepseek-ai/dsh-web 在仓库里确实没有 dsh.bundle —— 拿真实包做样本，
+  // 一旦有人把它写进 bundles，内核会中止启动；自愈必须在启动前就把这行去掉。
+  const f = makeFixture({
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-web'],
+    runtimePlugins: [],
+  })
+  const pkg = JSON.parse(readFileSync(join(root, 'node_modules', '@deepseek-ai', 'dsh-web', 'package.json'), 'utf8'))
+  ok(pkg.dsh?.bundle === undefined, '前置条件：@deepseek-ai/dsh-web 确实没声明 dsh.bundle')
+  f.sm.initIsolatedProfile()
+  const b = readBundles(f.web)
+  ok(!b.includes('@deepseek-ai/dsh-web'), '这类行被自动剔除，而不是留着让内核崩')
+  ok(b.includes('@deepseek-ai/dsh-base') && b.includes('@deepseek-ai/dsh-web-app'), '合规的两个核心行不动')
+  rmSync(f.home, { recursive: true, force: true })
+
+  // 但"读不到 package.json"不等于"坏行"：profile 的解析链接是内核启动时才修的，
+  // 此刻读不到就剔除会误删核心能力 ⇒ 必须保留。
+  const g = makeFixture({ bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'], runtimePlugins: [] })
+  g.sm.readPackageJson = (name) => (name === '@deepseek-ai/dsh-base' ? null : undefined)
+  g.sm.initIsolatedProfile()
+  const b2 = readBundles(g.web)
+  ok(b2.includes('@deepseek-ai/dsh-base'), '读不到 package.json 时保守保留（不误删）')
+  rmSync(g.home, { recursive: true, force: true })
+}
+
+console.log('▶ 7. 上游 reminder 的契约：只加提示，绝不结束回合')
+{
+  // 我们把它挂上发行版，就等于向用户承诺"它不会打断任务"（这正是撤掉自研看门狗的理由）。
+  // 所以直接对着上游包做契约断言：命中阈值时只往 additionalContexts 前面塞一条提示，
+  // 回合结局必须与 next() 一致；它自己永远不许产出 block/reject 之类的终止信号。
+  const pkgDir = join(root, 'node_modules', '@deepseek-ai', 'dsh-repeat-tool-reminder', 'lib', 'index.js')
+  if (!existsSync(pkgDir)) {
+    console.log('  ⏭️ 上游包不在本机，跳过契约断言')
+  } else {
+    const { apply } = await import(pathToFileURL(pkgDir).href)
+    const listeners = []
+    apply({ logger: { info() {}, warn() {}, error() {} }, on: (n, h) => listeners.push([n, h]) },
+      { thresholds: [3, 5, 8], include: [], exclude: [], argumentsPreviewChars: 500 })
+    const post = listeners.find(([n]) => n === 'tools/post-execute')?.[1]
+    ok(Boolean(post), '它确实注册了 tools/post-execute（不是 pre-step 那种能掐轮的口子）')
+    const agent = { id: 'a' }
+    const exec = { agent, name: 'bash', arguments: '{"command":"ls -la"}' }
+    const nextPass = async () => ({ kind: 'pass', additionalContexts: [] })
+    const r1 = await post(exec, {}, nextPass)
+    const r2 = await post(exec, {}, nextPass)
+    ok((r1.additionalContexts || []).length === 0 && (r2.additionalContexts || []).length === 0,
+      '连重 1、2 次：不注入任何东西')
+    const r3 = await post(exec, {}, nextPass)
+    const added = r3.additionalContexts || []
+    ok(added.length === 1 && /repeating the exact same tool call/.test(added[0]?.content?.[0]?.text ?? ''),
+      '连重 3 次：注入一条"你在重复完全相同的调用"提示')
+    ok(added[0]?.source?.form === 'notice', '提示走 notice 形态（不会画成用户气泡）')
+    ok(r3.kind === 'pass', '回合结局仍是 next() 的 pass —— 它无权结束回合')
+    const blocked = await post(exec, {}, async () => ({ kind: 'block', feedback: 'x', additionalContexts: [] }))
+    ok(blocked.kind === 'block' && blocked.feedback === 'x', '别人给的 block 原样透传，不篡改也不新增终止语义')
+  }
+}
+
 console.log(`\n${failures === 0 ? '✅' : '❌'} profile 自愈清理 ${checked} 组断言${failures ? `，${failures} 处失败` : '全部通过'}`)
 process.exit(failures ? 1 : 0)
