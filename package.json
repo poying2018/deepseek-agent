@@ -18,6 +18,7 @@
     "check:kernelspeed": "node scripts/check-client-modules-equiv.mjs",
     "check:startup": "node scripts/check-startup-readiness.mjs",
     "check:dist": "node scripts/verify-dist-compose.mjs",
+    "perf:kernel-boot": "node scripts/perf-kernel-boot.mjs",
     "release:check": "node scripts/scan-plugins-status.mjs",
     "release:preflight": "node scripts/release-helper.mjs preflight",
     "release:notes": "node scripts/release-helper.mjs draft-notes",
