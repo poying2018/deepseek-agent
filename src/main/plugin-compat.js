@@ -300,12 +300,23 @@ export const PLUGIN_RUNTIME_PATCHES = [
   },
   {
     plugin: '@mlgbnb/dsh-archive-manager',
-    desc: '归档列表/详情改用隔离数据目录，并兼容 0.1.5 的分目录投影缓存',
-    // 「已归档的会话无法正常显示」的两处根因：
+    desc: '归档列表改用隔离数据目录，并兼容 0.1.5 的分目录投影缓存与 v3 会话日志名',
+    // 「设置页里归档的对话不显示」的四处根因（逐个实测，见下面每条的注释）：
     //  ① 插件把数据目录硬编码成 `~/.dsh`，完全忽略本发行版为内核设置的隔离 DSH_HOME
     //     （%APPDATA%\\ljanx\\dsh-data）→ 读到的是遗留的旧数据/读不到归档列表；
     //  ② 它只认旧的单文件投影缓存 storages/session_projcache.json，而内核 0.1.5 起
-    //     已改成目录形式 storages/session_projcache/sessions/<id>.json（记录结构一致）。
+    //     已改成目录形式 storages/session_projcache/sessions/<id>.json（记录结构一致）；
+    //  ③ 上一版补丁把 ② 写成了「聚合表非空就整份返回」的两选一，而聚合表只覆盖**部分**
+    //     会话（实测：22 个会话目录里只有 12 个在聚合表有行，且 6 个 `session-<uuid>`
+    //     命名的新会话一个都不在）→ 另一半仍然查不到行；
+    //  ④ 它把会话日志文件名写死成 session.jsonl.zstd / session.jsonl，而现行内核落盘是
+    //     **session.v3.jsonl.zstd**（实测 22/22 全部如此）→ hasDataFile 恒为 false。
+    // ③+④ 合起来才是真正致命的：listArchives 的 ghost 判定是
+    // 「没有数据文件 && 没有投影缓存行」，两条同时成立 → 它把该 id 从 workspace.json 的
+    // global.archivedSessionIds 里**写回删除**。于是用户归档一个会话，只要打开过一次归档
+    // 管理卡片，归档状态就被静默抹掉，侧边栏也跟着恢复显示 —— 表现就是"归档不显示"。
+    // 所以这里除了让它认得 v3 文件名、把两个缓存来源合并，还把 ghost 收紧成
+    // 「连会话目录都没有」才剪，避免插件继续改内核的存档。
     edits: [
       {
         file: 'lib/index.js',
@@ -316,10 +327,8 @@ export const PLUGIN_RUNTIME_PATCHES = [
         file: 'lib/index.js',
         from: '/** Path to session_projcache.json. */',
         to: [
-          '/** 兼容读取投影缓存：内核 0.1.5 起存成分目录 sessions/<id>.json，旧版是单文件。 */',
+          '/** 兼容读取投影缓存：分目录 sessions/<id>.json 与单文件聚合表**都要读**并合并。 */',
           'export function readProjcacheCompat() {',
-          '  const legacy = readJsonFile(projcachePath())',
-          '  if (legacy?.tables?.sessions && Object.keys(legacy.tables.sessions).length > 0) return legacy',
           "  const dir = join(dshHome(), 'storages', 'session_projcache', 'sessions')",
           '  const sessions = {}',
           '  try {',
@@ -330,6 +339,8 @@ export const PLUGIN_RUNTIME_PATCHES = [
           "      if (record) sessions[entry.replace(/\\.json$/, '')] = record",
           '    }',
           '  } catch {}',
+          '  const legacy = readJsonFile(projcachePath())',
+          '  if (legacy?.tables?.sessions) Object.assign(sessions, legacy.tables.sessions)',
           '  return { tables: { sessions } }',
           '}',
           '',
@@ -337,6 +348,66 @@ export const PLUGIN_RUNTIME_PATCHES = [
         ].join('\n'),
       },
       {
+        // 会话日志文件名解析器：内核换过 v1→v2→v3 的落盘名，写死任何一个都会在升轨后
+        // 静默失配（而且失配方向是"误删用户的归档状态"，不是少显示几行）。
+        file: 'lib/index.js',
+        from: '/** Read full transcript text from data directory. */',
+        to: [
+          '/**',
+          '* 按目录实际内容找会话日志：现行内核是 session.v3.jsonl.zstd，',
+          '* 历史还有 session.jsonl.zstd / session.jsonl。返回绝对路径，缺位给空串',
+          '* （空串过 existsSync 恒为 false，调用方无需改动判断）。',
+          '*/',
+          'export function findSessionLogs(dataDir) {',
+          '  const out = { zstd: \'\', jsonl: \'\' }',
+          '  try {',
+          '    const names = readdirSync(dataDir)',
+          "    const zstd = names.find((n) => n.startsWith('session') && n.endsWith('.jsonl.zstd'))",
+          "    const plain = names.find((n) => n.startsWith('session') && n.endsWith('.jsonl'))",
+          "    if (zstd) out.zstd = join(dataDir, zstd)",
+          "    else if (plain) out.jsonl = join(dataDir, plain)",
+          '  } catch {}',
+          '  return out',
+          '}',
+          '',
+          '/** Read full transcript text from data directory. */',
+        ].join('\n'),
+      },
+      {
+        file: 'lib/index.js',
+        from: [
+          'export function readTranscriptText(dataDir) {',
+          "  const zstdPath = join(dataDir, 'session.jsonl.zstd')",
+          "  const jsonlPath = join(dataDir, 'session.jsonl')",
+        ].join('\n'),
+        to: [
+          'export function readTranscriptText(dataDir) {',
+          '  const logs = findSessionLogs(dataDir)',
+          '  const zstdPath = logs.zstd',
+          '  const jsonlPath = logs.jsonl',
+        ].join('\n'),
+      },
+      {
+        file: 'lib/index.js',
+        from: [
+          "      const zstdPath = join(dataDir, 'session.jsonl.zstd')",
+          "      const jsonlPath = join(dataDir, 'session.jsonl')",
+          '      hasDataFile = existsSync(zstdPath) || existsSync(jsonlPath)',
+        ].join('\n'),
+        to: [
+          '      const logs = findSessionLogs(dataDir)',
+          "      hasDataFile = logs.zstd !== '' || logs.jsonl !== ''",
+        ].join('\n'),
+      },
+      {
+        // ghost 只能意味着"这个 id 在磁盘上彻底没有痕迹"。用目录是否存在判定，而不是
+        // 有没有读到数据文件 —— 后者依赖文件名猜对，猜错的代价是删掉用户的归档状态。
+        file: 'lib/index.js',
+        from: '    if (!hasDataFile && !sessionMeta) {',
+        to: '    if (dataDir === undefined && !sessionMeta) {',
+      },
+      {
+        // 让上面那个兼容读取器真的被用上（两处调用点：列表与详情）。
         file: 'lib/index.js',
         from: 'const projcache = readJsonFile(projcachePath())',
         to: 'const projcache = readProjcacheCompat()',

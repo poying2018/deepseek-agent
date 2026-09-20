@@ -105,6 +105,12 @@ plugins:
     repo: https://gitee.com/iJetLi/deepseek-harness-codearts.git
     ref: master
   # 社区开源精选插件（npm 公开发行包，开箱即用预装）
+  # @mlgbnb/dsh-archive-manager：钉 1.0.7，并且**必须**搭配 src/main/plugin-compat.js 里
+  # 的 7 处兼容补丁才能正常工作（补丁失效的后果不是"少显示几行"，而是它会把自己的误判
+  # 写回 workspace.json，静默删掉用户的归档状态）。三处成因见那条补丁的注释。
+  # 2026-09-20 实测上游 1.0.10：ghost 自动清理、写死 session.jsonl.zstd、只读单文件投影
+  # 缓存三个问题**一个都没修**（dshHome 与两处函数体已改写，所以补丁的 7 处锚点只命中 4 处）。
+  # 也就是说升这个 pin 不解决问题，反而要重新锚定补丁 —— 升版前先跑 `pnpm check:archive`。
   - name: "@mlgbnb/dsh-archive-manager"
     npm: "@mlgbnb/dsh-archive-manager@1.0.7"
   - name: dsh-codex-timeline
