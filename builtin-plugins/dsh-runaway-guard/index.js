@@ -246,10 +246,15 @@ export function apply(ctx, config = {}) {
         const label = agent.id ?? 'unknown'
 
         if (stepOverHard || repeatHard) {
+          // 日志只说真正的触发原因：步数闸门默认关着，写死"步数上限"会报出
+          // 一个毫不相干的数字（maxSteps=0 时它是 graceSteps），误导排查。
+          const because = [
+            stepOverHard ? `达到单轮步数上限 ${hardSteps} 步` : '',
+            repeatHard ? `同一工具调用连续 ${count} 次${sample ? `（${sample.split('\u0000')[0]}）` : ''}` : '',
+          ].filter(Boolean).join('，')
           ctx.logger.warn(
-            `${PLUGIN_ID}: 已中止 session="${label}" turn=${turn} step=${step} —— `
-            + `单轮步数上限 ${hardSteps}${repeatHard ? ` / 同一工具调用连续 ${count} 次` : ''}，`
-            + `判定为失控（loop runaway）。${sample ? `重复调用: ${sample.split('\u0000')[0]}` : ''}`,
+            `${PLUGIN_ID}: 已中止 session="${label}" turn=${turn} step=${step} —— ${because}，`
+            + '判定为失控（loop runaway）。',
           )
           return { kind: 'reject' }
         }
