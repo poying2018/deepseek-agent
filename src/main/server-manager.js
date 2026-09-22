@@ -349,8 +349,16 @@ export class ServerManager {
         cleanedBundles.push(b)
         continue
       }
+      // 用户在应用内自装的插件记在 dependencies 里，默认应当保留 —— 但**前提是它真的装着**。
+      // 只凭 dependencies 保留是黑屏陷阱：内核解析不到任何一个 bundle 行会直接中止 web 壳启动
+      // （`cannot resolve profile bundle …`）。实测会踩到的情形：换安装包时旧解析链接失效、
+      // 插件安装中断、或发行版改版后不再随包带某个插件（vanilla 分支副本实验撞出来过一次）。
       if (userDeps.includes(b)) {
-        cleanedBundles.push(b)
+        if (this.profileBundleResolvable(profileNodeModules, b)) {
+          cleanedBundles.push(b)
+        } else {
+          console.log(`[ServerManager] bundles 里的 ${b} 记在 dependencies 但实际未安装，剔除该行（留着会让内核起不来）`)
+        }
         continue
       }
       if (available.includes(b)) {
@@ -502,6 +510,18 @@ export class ServerManager {
     }
   }
 
+  /**
+   * bundles 里的某个包名此刻能不能被内核解析到。
+   * 查两处：profile 自己的 node_modules（pnpm 布局下它通常是指向 .pnpm 的软链，
+   * existsSync 会跟着走），以及上一级的 profiles/node_modules（内核 module fallback 农场）。
+   */
+  profileBundleResolvable(profileNodeModules, name) {
+    const parts = name.split('/')
+    if (existsSync(join(profileNodeModules, ...parts, 'package.json'))) return true
+    const farm = join(dirname(profileNodeModules), 'node_modules')
+    return existsSync(join(farm, ...parts, 'package.json'))
+  }
+  
   /**
    * 探测已安装的 DSH 依赖树里是否真的带着浏览选择器的两面。
    * 探测不到就什么都不做、保留官方 auto 行——宁可维持原状，也不写一个半残的

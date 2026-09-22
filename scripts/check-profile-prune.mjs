@@ -21,7 +21,7 @@ let failures = 0
 let checked = 0
 const ok = (cond, what) => { checked += 1; if (!cond) { failures += 1; console.log(`  ❌ ${what}`) } else console.log(`  ✅ ${what}`) }
 
-function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = [] }) {
+function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = [], deps = [] }) {
   const home = mkdtempSync(join(tmpdir(), 'jds-prune-'))
   const dshHome = join(home, 'dsh-data')
   const web = join(dshHome, 'profiles', 'web')
@@ -30,7 +30,8 @@ function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = 
   mkdirSync(join(nm, '@deepseek-ai'), { recursive: true })
   mkdirSync(join(runtime, 'plugins'), { recursive: true })
   writeFileSync(join(web, 'package.json'), JSON.stringify({
-    name: 'dsh-profile-web', private: true, dependencies: {},
+    name: 'dsh-profile-web', private: true,
+    dependencies: Object.fromEntries(deps.map((d) => [d, '1.0.0'])),
     dsh: { profile: { bundles } },
   }, null, 2))
   // 死链：指向一个不存在的目录（升级后被删掉的内置插件就是这个形态）
@@ -81,12 +82,32 @@ console.log('▶ 2. 用户在应用内自己装的插件绝不能被误删')
   const f = makeFixture({
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'user-installed-thing'],
     realPkgs: ['user-installed-thing'],
+    deps: ['user-installed-thing'],
     runtimePlugins: [],
   })
   f.sm.initIsolatedProfile()
   const b = readBundles(f.web)
-  ok(b.includes('user-installed-thing'), '不在内置列表但包真实存在 → 保留')
+  ok(b.includes('user-installed-thing'), '记在 dependencies 且真的装着 → 保留（连 deps 声明一起走）')
   ok(existsSync(join(f.nm, 'user-installed-thing', 'package.json')), '用户插件目录没被动过')
+  rmSync(f.home, { recursive: true, force: true })
+}
+
+console.log('▶ 2b. dependencies 里声明了、但包其实不在 —— 必须剔除（留着内核整体起不来）')
+{
+  // vanilla 分支的副本实验真撞出来一次：内核抛
+  //   cannot resolve profile bundle "@ace-zone/dsh-market" …
+  // 然后中止整个 web 壳。只凭 dependencies 保留就是一颗定时黑屏。
+  const f = makeFixture({
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@ghost/not-installed'],
+    deps: ['@ghost/not-installed'],
+    runtimePlugins: [],
+  })
+  f.sm.initIsolatedProfile()
+  const b = readBundles(f.web)
+  ok(!b.includes('@ghost/not-installed'), '声明未安装的包不得留在 bundles 里')
+  ok(b.includes('@deepseek-ai/dsh-base') && b.includes('@deepseek-ai/dsh-web-app'), '两行核心行照常保留')
+  const still = JSON.parse(readFileSync(join(f.web, 'package.json'), 'utf8')).dependencies || {}
+  ok('@ghost/not-installed' in still, '只剔 bundles 行，不动 dependencies 声明（那是安装意图，归插件面板管）')
   rmSync(f.home, { recursive: true, force: true })
 }
 
