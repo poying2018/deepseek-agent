@@ -223,51 +223,8 @@ ipcMain.on('ljanx:window-toggle-maximize', (event) => {
   }
 })
 
-// ---------------------------------------------------------------------------
-// 输入框「点了没反应」的归因落盘
-//
-// 上游 InputBar 有六个闸门（inert / removed / !live / blocked / parentOffline /
-// machineBusy），任何一个关上时输入区会**外观不变地**不吃点击 —— 我们在发行版里
-// 改不了这个行为，但可以把它变成可归因的事实：渲染层确认"这次点击什么都没发生"
-// 之后发来一条记录，落到 <dshHome>/composer-diag.jsonl。
-//
-// 边界（都是刻意的）：
-//   · 载荷字段由渲染层的白名单固定，**不含任何用户输入内容**（pnpm check:composer 钉住）；
-//     这里仍按白名单二次取用，不信任渲染层传来的多余键；
-//   · 限流：同类 gate 5 秒内只记一条，文件最多 400 行（超了从头覆盖），
-//     免得诊断本身变成新的性能/磁盘问题；
-//   · 写失败绝不影响使用（整段包在 try 里）。
-// ---------------------------------------------------------------------------
-const DIAG_FIELDS = ['ts', 'gate', 'phase', 'editable', 'ariaDisabled', 'hasPopup', 'hasPlaceholder', 'responded']
-const diagState = { lastAt: 0, lastGate: '', lines: 0 }
-ipcMain.on('ljanx:composer-diag', (_event, raw) => {
-  try {
-    if (!raw || typeof raw !== 'object') return
-    const rec = {}
-    for (const k of DIAG_FIELDS) if (k in raw) rec[k] = raw[k]
-    if (typeof rec.gate !== 'string') return
-    const now = Date.now()
-    if (rec.gate === diagState.lastGate && now - diagState.lastAt < 5000) return
-    diagState.lastGate = rec.gate
-    diagState.lastAt = now
-    const dshHome = serverManager?.dshHome
-    if (!dshHome) return
-    const file = join(dshHome, 'composer-diag.jsonl')
-    const line = JSON.stringify({
-      ...rec,
-      at: new Date(now).toISOString(),
-      app: app.getVersion(),
-      platform: process.platform,
-    }) + '\n'
-    // 超过 400 行就重开一份，保留最近的内容够用即可（诊断不是日志归档）
-    if (diagState.lines >= 400 || !existsSync(file)) diagState.lines = 0
-    appendFileSync(file, line, diagState.lines === 0 ? 'w' : 'a')
-    diagState.lines += 1
-    console.log(`[composer-diag] 输入框点击无响应：gate=${rec.gate} phase=${rec.phase ?? '-'}（已记入 composer-diag.jsonl）`)
-  } catch {
-    // 诊断写不进去不是用户的错，静默跳过。
-  }
-})
+// 纯净版（vanilla 分支）：主线在此有 ljanx:composer-diag 归因落盘（配合 preload 的
+// 输入框点击兜底）。本分支不装兜底，因此这条通道整体不存在，需要时从 main 取回。
 
 // ---------------------------------------------------------------------------
 // 应用内「检查更新 / 下载更新 / 安装」

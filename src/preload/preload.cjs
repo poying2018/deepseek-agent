@@ -172,20 +172,10 @@ window.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('visibilitychange', syncPauseStyle)
   syncPauseStyle()
 
-  // ── 输入框点击兜底 + 无响应归因 ──────────────────────────────────────────
-  // 逻辑与成因都在 ./composer-guard.cjs（纯函数，可被 pnpm check:composer 用假 DOM 断言）。
-  // 这里只负责注入真实环境与"把归因交给主进程落盘"：渲染层不碰文件系统。
-  // 载荷是一组封闭的属性名/枚举值，不含任何用户输入内容（白名单由测试钉住）。
-  try {
-    const { installComposerGuard } = require('./composer-guard.cjs')
-    installComposerGuard({
-      window,
-      document,
-      send: (payload) => {
-        try { ipcRenderer.send('ljanx:composer-diag', payload) } catch {}
-      },
-    })
-  } catch (error) {
-    console.error('[composer-guard] 装载失败，输入框兜底不可用:', error && error.message)
-  }
+  // ── 纯净版：这里刻意什么都不装 ────────────────────────────────────────────
+  // 主线在此装载输入框点击兜底（src/preload/composer-guard.cjs：点在输入区矩形内却被
+  // 中间层吃掉时补一次 focus，并在"确实什么都没发生"时记一行归因）。
+  // 本分支的用途是判断"问题是不是插件叠出来的"，而那段逻辑本身就在改交互行为 ——
+  // 留着它，裸底就不再是裸底。故连文件与门禁一并摘除，需要时从 main 取回：
+  //   git show main:src/preload/composer-guard.cjs
 })
