@@ -3,7 +3,9 @@
 > **DeepSeek Harness 的桌面客户端发行版** —— 开箱即用，无需手动安装 Node.js、配置运行环境或敲命令行。
 >
 > **这是 `vanilla` 分支：纯净版（官方裸底）**。只打包官方内核本体
-> （`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`），**不装任何插件**，
+> （`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`），插件只留一个
+> **更新面板 `dsh-update-check`**（宿主侧空实现、只注册一个侧栏按钮，理由见
+> `src/main/own-plugins.js` 文件头），不装任何其他插件，
 > 也不启用任何为插件服务的注入层。保留的只有两类：三处内核包补丁（设置页侧栏滚动、
 > 未鉴权模型隐藏、内核启动提速）与外壳侧的启动 / GPU 优化。
 >

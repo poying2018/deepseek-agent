@@ -60,11 +60,21 @@ const readBundles = (web) => JSON.parse(readFileSync(join(web, 'package.json'), 
 const hasBuiltins = ALL_BUILTIN_PLUGINS.length > 0
 const oneBuiltin = ALL_BUILTIN_PLUGINS[0]
 
-console.log('▶ 0. 本分支的不变量：不装任何插件')
-if (hasBuiltins) {
-  ok(ALL_BUILTIN_PLUGINS.length === 0, `内置插件清单应为空（实际 ${ALL_BUILTIN_PLUGINS.length} 个：${ALL_BUILTIN_PLUGINS.join(', ')}）`)
-} else {
-  ok(true, 'OWN/COMMUNITY/OPT_IN 三张清单都为空 —— 纯净版不变量成立')
+console.log('▶ 0. 本分支的不变量：只留更新面板这一个仓内插件')
+// 为什么允许留一个：GitHub 的 /releases/latest 端点结构上永不返回 prerelease，
+// 而纯净版是 prerelease 轨道 —— 没有这块面板，纯净版用户只能人工盯发布页才知道
+// 有没有新版。留下的这一个刻意挑了副作用最小的：宿主半边 inject 为空、不占端口
+// 不读文件，客户端半边只注册一个侧栏按钮，不参与推理也不改交互，因此不会污染
+// "这个毛病是不是插件叠出来的" —— 那正是本分支要回答的问题。
+// 但只有这一个：多带任何一个都违背本分支存在的目的，所以这里钉死成恰好一项。
+ok(
+  ALL_BUILTIN_PLUGINS.length === 1 && ALL_BUILTIN_PLUGINS[0] === 'dsh-update-check',
+  `内置清单必须恰好是 dsh-update-check 一项（实际 ${ALL_BUILTIN_PLUGINS.length} 个：${ALL_BUILTIN_PLUGINS.join(', ') || '空' }）`,
+)
+{
+  const own = readFileSync(join(root, 'src', 'main', 'own-plugins.js'), 'utf8')
+  ok(/COMMUNITY_PLUGINS = \[\s*\]/.test(own), '社区插件清单仍为空（纯净版不带任何社区插件）')
+  ok(/OPT_IN_PLUGINS = \[\s*\]/.test(own), '外观类插件清单仍为空（皮肤一律不带）')
 }
 {
   const manifest = readFileSync(join(root, 'plugins.manifest.yaml'), 'utf8')

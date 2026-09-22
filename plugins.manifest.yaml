@@ -1,6 +1,7 @@
 # 纯净版（vanilla 分支）插件清单：**刻意留空**。
 #
-# 本分支不打包任何外部/自研插件，profile 的 bundles 只剩内核本体两行
+# 本分支不打包任何外部插件，仓内也只留更新面板一个（见 src/main/own-plugins.js
+# 文件头的理由），profile 的 bundles 只剩内核本体两行
 # （@deepseek-ai/dsh-base、@deepseek-ai/dsh-web-app）。留空而不是删文件，是因为
 # prepare-bundle.js 与 CI 都以这个文件为输入契约。
 #
