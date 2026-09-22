@@ -433,6 +433,12 @@ window.__ModuleLoader__.load({
             h('p', { className: 'duc-state is-available', style: { margin: 0 } },
               t.crossTitle(nameOf(result && result.installedTrack), nameOf(result && result.track), (result && result.latestVersion) || '')),
             h('p', { style: { margin: 0 } }, t.crossBody),
+            h('div', { className: 'duc-actions' },
+              h('button', {
+                type: 'button', className: 'duc-action duc-action-primary',
+                onClick: () => { void runUninstall() },
+              }, t.openUninstall),
+            ),
           )
         }
         return null
@@ -485,13 +491,9 @@ window.__ModuleLoader__.load({
             }, t.install)
             : null,
 
-          // 跨轨道：只有「先去卸载」和「打开发布页」，没有任何安装/下载按钮
-          phase === 'cross'
-            ? h('button', {
-              type: 'button', className: 'duc-action duc-action-primary',
-              onClick: () => { void runUninstall() },
-            }, t.openUninstall)
-            : null,
+          // 跨轨道的「先去卸载」已经挪进上方警告块内，紧挨那句指令；
+          // 这里刻意不再重复出现（同一条命令出现两次会让人怀疑是两个动作），
+          // 底部只剩「打开发布页」与「重新检查」。
 
           (phase === 'latest' || phase === 'no-release' || phase === 'error')
             ? h('button', { type: 'button', className: 'duc-action', onClick: () => { void runCheck() } }, t.recheck)

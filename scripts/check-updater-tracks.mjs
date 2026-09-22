@@ -271,6 +271,7 @@ group('7. 接线：轨道判定只能有一套')
   //      入口」这个唯一的主动作挤出可视区，而且让人误以为那是给自己的更新。
   ok(!/brand-primary\)\s*;\s*color:var\(--dsw-alias-on-brand/.test(client),
     '轨道胶囊选中态不得用 brand-primary 当背景（该主题下接近白色，白字会糊成一片）')
+  ok(/duc-cross[\s\S]{0,600}openUninstall/.test(client), '跨轨的卸载按钮在警告块内 —— 贴着那句指令，不会被下面的详情块挤出可视区')
   const notesCond = (client.match(/\(phase === 'available'[^\n]*/) || [''])[0]
   ok(notesCond.length > 0 && !notesCond.includes("'cross'"),
     '跨轨屏不渲染另一条轨的更新说明，避免把主行动按钮挤出可视区')
