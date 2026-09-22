@@ -265,6 +265,15 @@ group('7. 接线：轨道判定只能有一套')
   ok(/update\.check\([a-zA-Z_$]/.test(client), '面板把要查的轨道作为实参传给 update.check（不许退回无参调用）')
   ok(/update\.openUninstall\(\)/.test(client), '面板的「先卸载旧版本」按钮真的调到主进程')
   ok(!/download\(.*cross/i.test(client), '面板没有为跨轨结果准备下载入口')
+  // 截图实测出来的两条（不是凭空加的规矩）：
+  //   1. 本主题里 --dsw-alias-brand-primary 接近白色，拿它当胶囊背景 + 白字 = 看不见；
+  //   2. 跨轨屏里再塞一坨 200px 高、属于**另一条轨**的更新说明，会把「打开系统卸载
+  //      入口」这个唯一的主动作挤出可视区，而且让人误以为那是给自己的更新。
+  ok(!/brand-primary\)\s*;\s*color:var\(--dsw-alias-on-brand/.test(client),
+    '轨道胶囊选中态不得用 brand-primary 当背景（该主题下接近白色，白字会糊成一片）')
+  const notesCond = (client.match(/\(phase === 'available'[^\n]*/) || [''])[0]
+  ok(notesCond.length > 0 && !notesCond.includes("'cross'"),
+    '跨轨屏不渲染另一条轨的更新说明，避免把主行动按钮挤出可视区')
 }
 
 // ---------------------------------------------------------------- 结果
