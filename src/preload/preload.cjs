@@ -14,14 +14,20 @@ try {
     update: {
       /** 当前版本 / 发布页地址 / 已下载的安装包 / 平台信息 */
       info: () => ipcRenderer.invoke('ljanx:update-info'),
-      /** 查询 GitHub 最新 Release 并与本机版本比对 */
-      check: () => ipcRenderer.invoke('ljanx:update-check'),
+      /**
+       * 查询指定轨道的最新 Release 并与本机版本比对。
+       * @param {'stable'|'vanilla'} [track] 缺省 = 本机装的那条轨；传另一条轨只会
+       *   拿到「需先卸载」的引导（结果里 asset 为 null），拿不到安装包。
+       */
+      check: (track) => ipcRenderer.invoke('ljanx:update-check', track ? { track } : {}),
       /** 下载指定资产（asset 来自 check 的返回） */
       download: (asset) => ipcRenderer.invoke('ljanx:update-download', asset),
       /** 启动已下载的安装程序 */
       install: (filePath) => ipcRenderer.invoke('ljanx:update-install', filePath),
       /** 用系统浏览器打开发布页 */
       openReleases: () => ipcRenderer.invoke('ljanx:update-open-releases'),
+      /** 打开系统的「已安装应用」界面（跨轨道更新时的卸载引导） */
+      openUninstall: () => ipcRenderer.invoke('ljanx:update-open-uninstall'),
       /**
        * 订阅下载进度。
        * @returns 取消订阅函数（组件卸载时必须调用，否则监听器会堆积）
