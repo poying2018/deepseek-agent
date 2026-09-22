@@ -14,14 +14,14 @@ import { tmpdir } from 'node:os'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const { ServerManager } = await import(pathToFileURL(join(root, 'src', 'main', 'server-manager.js')).href)
+const { ServerManager, KERNEL_CAPABILITIES } = await import(pathToFileURL(join(root, 'src', 'main', 'server-manager.js')).href)
 const { ALL_BUILTIN_PLUGINS } = await import(pathToFileURL(join(root, 'src', 'main', 'own-plugins.js')).href)
 
 let failures = 0
 let checked = 0
 const ok = (cond, what) => { checked += 1; if (!cond) { failures += 1; console.log(`  ❌ ${what}`) } else console.log(`  ✅ ${what}`) }
 
-function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = [] }) {
+function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = [], deps = [] }) {
   const home = mkdtempSync(join(tmpdir(), 'jds-prune-'))
   const dshHome = join(home, 'dsh-data')
   const web = join(dshHome, 'profiles', 'web')
@@ -30,7 +30,8 @@ function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = 
   mkdirSync(join(nm, '@deepseek-ai'), { recursive: true })
   mkdirSync(join(runtime, 'plugins'), { recursive: true })
   writeFileSync(join(web, 'package.json'), JSON.stringify({
-    name: 'dsh-profile-web', private: true, dependencies: {},
+    name: 'dsh-profile-web', private: true,
+    dependencies: Object.fromEntries(deps.map((d) => [d, '1.0.0'])),
     dsh: { profile: { bundles } },
   }, null, 2))
   // 死链：指向一个不存在的目录（升级后被删掉的内置插件就是这个形态）
@@ -56,14 +57,27 @@ function makeFixture({ bundles, deadLinks = [], realPkgs = [], runtimePlugins = 
 }
 const readBundles = (web) => JSON.parse(readFileSync(join(web, 'package.json'), 'utf8')).dsh.profile.bundles
 
+const hasBuiltins = ALL_BUILTIN_PLUGINS.length > 0
 const oneBuiltin = ALL_BUILTIN_PLUGINS[0]
+
+console.log('▶ 0. 本分支的不变量：不装任何插件')
+if (hasBuiltins) {
+  ok(ALL_BUILTIN_PLUGINS.length === 0, `内置插件清单应为空（实际 ${ALL_BUILTIN_PLUGINS.length} 个：${ALL_BUILTIN_PLUGINS.join(', ')}）`)
+} else {
+  ok(true, 'OWN/COMMUNITY/OPT_IN 三张清单都为空 —— 纯净版不变量成立')
+}
+{
+  const manifest = readFileSync(join(root, 'plugins.manifest.yaml'), 'utf8')
+  const declared = [...manifest.matchAll(/^\s*-\s+name:\s+(\S+)/gm)].map((m) => m[1])
+  ok(declared.length === 0, `plugins.manifest.yaml 未声明任何外部插件（实际 ${declared.length} 个）`)
+}
 
 console.log('▶ 1. 内置插件被删除后（bundles 里还有、包已不存在）不得砖掉内核')
 {
   const f = makeFixture({
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-runaway-guard', 'totally-removed'],
     deadLinks: ['dsh-runaway-guard', 'totally-removed'],
-    runtimePlugins: [oneBuiltin],
+    runtimePlugins: hasBuiltins ? [oneBuiltin] : [],
   })
   try { f.sm.initIsolatedProfile() } catch (e) { ok(false, `initIsolatedProfile 抛异常：${e.message}`) }
   const b = readBundles(f.web)
@@ -72,7 +86,8 @@ console.log('▶ 1. 内置插件被删除后（bundles 里还有、包已不存�
   ok(!existsSync(join(f.nm, 'dsh-runaway-guard')), '死链本体也被 unlink，不留残余')
   ok(b.includes('@deepseek-ai/dsh-base') && b.includes('@deepseek-ai/dsh-web-app'), '两个核心行仍在')
   ok(b.filter((x) => x === '@deepseek-ai/dsh-base').length === 1, 'dsh-base 不重复')
-  ok(b.includes(oneBuiltin), `现存内置插件（${oneBuiltin}）被补进 bundles`)
+  if (hasBuiltins) ok(b.includes(oneBuiltin), `现存内置插件（${oneBuiltin}）被补进 bundles`)
+  else ok(b.length === 2, `内置清单为空时不凭空补任何行（bundles 只剩核心两行，实际 ${b.length} 行）`)
   rmSync(f.home, { recursive: true, force: true })
 }
 
@@ -81,12 +96,32 @@ console.log('▶ 2. 用户在应用内自己装的插件绝不能被误删')
   const f = makeFixture({
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'user-installed-thing'],
     realPkgs: ['user-installed-thing'],
+    deps: ['user-installed-thing'],
     runtimePlugins: [],
   })
   f.sm.initIsolatedProfile()
   const b = readBundles(f.web)
-  ok(b.includes('user-installed-thing'), '不在内置列表但包真实存在 → 保留')
+  ok(b.includes('user-installed-thing'), '记在 dependencies 且真的装着 → 保留（连 deps 声明一起走）')
   ok(existsSync(join(f.nm, 'user-installed-thing', 'package.json')), '用户插件目录没被动过')
+  rmSync(f.home, { recursive: true, force: true })
+}
+
+console.log('▶ 2b. dependencies 里声明了、但包其实不在 —— 必须剔除（留着内核整体起不来）')
+{
+  // 纯净版的副本实验真撞出来过一次：内核抛
+  //   cannot resolve profile bundle "@ace-zone/dsh-market" …
+  // 然后中止整个 web 壳。只凭 dependencies 保留就是一颗定时黑屏。
+  const f = makeFixture({
+    bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@ghost/not-installed'],
+    deps: ['@ghost/not-installed'],
+    runtimePlugins: [],
+  })
+  f.sm.initIsolatedProfile()
+  const b = readBundles(f.web)
+  ok(!b.includes('@ghost/not-installed'), '声明未安装的包不得留在 bundles 里')
+  ok(b.includes('@deepseek-ai/dsh-base') && b.includes('@deepseek-ai/dsh-web-app'), '两行核心行照常保留')
+  const still = JSON.parse(readFileSync(join(f.web, 'package.json'), 'utf8')).dependencies || {}
+  ok('@ghost/not-installed' in still, '只剔 bundles 行，不动 dependencies 声明（那是安装意图，归插件面板管）')
   rmSync(f.home, { recursive: true, force: true })
 }
 
@@ -95,7 +130,7 @@ console.log('▶ 3. 幂等与容错')
   const f = makeFixture({
     bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'gone-1', '@deepseek-ai/dsh-base'],
     deadLinks: ['gone-1'],
-    runtimePlugins: [oneBuiltin],
+    runtimePlugins: hasBuiltins ? [oneBuiltin] : [],
   })
   f.sm.initIsolatedProfile()
   const first = JSON.stringify(readBundles(f.web))
@@ -119,7 +154,9 @@ console.log('▶ 4. 发行清单自检：不该再有已删除插件的残留注
 {
   const leftovers = ['dsh-runaway-guard'].filter((n) => ALL_BUILTIN_PLUGINS.includes(n))
   ok(leftovers.length === 0, `OWN_PLUGINS 里已无历史插件残留（残留：${leftovers.join(',') || '无'}）`)
-  ok(existsSync(join(root, 'builtin-plugins')), 'builtin-plugins 目录在位')
+  const hasBuiltinDir = existsSync(join(root, 'builtin-plugins'));
+  ok(ALL_BUILTIN_PLUGINS.length > 0 ? hasBuiltinDir : !hasBuiltinDir,
+    ALL_BUILTIN_PLUGINS.length > 0 ? 'builtin-plugins 目录在位' : '内置清单为空时，仓内插件目录也应不存在（防止留下无人引用的源码）')
 }
 
 console.log('▶ 5. 内核自带能力：走 cordis.patch.yml 托管区，绝不进 bundles')
@@ -130,8 +167,10 @@ console.log('▶ 5. 内核自带能力：走 cordis.patch.yml 托管区，绝不
   f.sm.initIsolatedProfile()
   const patch = readFileSync(join(f.web, 'cordis.patch.yml'), 'utf8')
   const b = readBundles(f.web)
-  ok(patch.includes("name: '@deepseek-ai/dsh-repeat-tool-reminder'"), '托管区里有反打转提示的 insert 行')
-  ok(!b.includes('@deepseek-ai/dsh-repeat-tool-reminder'), '它没有被写进 bundles（写进去会黑屏）')
+  const wantsReminder = KERNEL_CAPABILITIES.some((c) => c.pkg === '@deepseek-ai/dsh-repeat-tool-reminder');
+  if (wantsReminder) ok(patch.includes("name: '@deepseek-ai/dsh-repeat-tool-reminder'"), '托管区里有反打转提示的 insert 行');
+  else ok(!patch.includes('dsh-repeat-tool-reminder'), '本分支刻意不声明该能力 → 托管区里也不应出现这行');
+  ok(!b.includes('@deepseek-ai/dsh-repeat-tool-reminder'), '它绝不进 bundles（进了会黑屏：未声明 dsh.bundle）')
   f.sm.initIsolatedProfile()
   const patch2 = readFileSync(join(f.web, 'cordis.patch.yml'), 'utf8')
   ok((patch2.match(/dsh-repeat-tool-reminder/g) || []).length === (patch.match(/dsh-repeat-tool-reminder/g) || []).length,

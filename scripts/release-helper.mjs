@@ -36,9 +36,23 @@ async function git(cwd, args) {
  * 1. 发版门禁检查 (preflight)
  */
 export async function runPreflight(options = {}) {
+  // 纯净版（vanilla 分支）不构建任何插件：插件仓的脏文件/分支/未推送状态与本产物无关。
+  // 继续报它们只会制造噪音，让人以为发版被插件状态影响，所以这里按清单是否声明插件来短路。
+  const declaresPlugins = (() => {
+    try {
+      const yaml = readFileSync(join(jackDshDir, 'plugins.manifest.yaml'), 'utf8')
+      return /^\s*-\s+name:/m.test(yaml)
+    } catch {
+      return true // 读不到清单就照旧全量检查，绝不放宽门禁
+    }
+  })()
+
   console.log('🔍 [1/5] 正在执行插件生态 Git 与同步门禁检查...')
-  const scanResult = await scanAllPlugins({ fetch: Boolean(options.fetch) })
-  
+  const scanResult = declaresPlugins
+    ? await scanAllPlugins({ fetch: Boolean(options.fetch) })
+    : { plugins: [], categories: { dirty: [], ahead: [], abnormalBranch: [] } }
+  if (!declaresPlugins) console.log('   （本分支 plugins.manifest.yaml 未声明任何插件 —— 纯净版不构建插件，跳过插件生态扫描）')
+
   const blockers = []
   const warnings = []
 

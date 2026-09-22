@@ -19,32 +19,12 @@ const PICKER_BROWSE_BACKEND = '@deepseek-ai/dsh-host-directory-picker-browse'
 const PICKER_BROWSE_SURFACE = '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
 /**
- * 随包分发、但上游默认 profile 不挂的「内核自带能力」——通过 cordis.patch.yml 托管区
- * 的 insert 行启用（**不是** bundles！）。
- *
- * 为什么必须走 patch 行：内核要求 bundles 里每个包都在自己的 package.json 声明
- * `dsh.bundle`，而这些能力包没有（实测报
- * `dsh: profile bundle "@deepseek-ai/dsh-repeat-tool-reminder" declares no dsh.bundle
- * in its package.json` 并中止整个 web 壳启动）。`@deepseek-ai/dsh-web` /
- * `dsh-web-fetch-http` 也是同样处理的（见 webCapabilityPatchLines）。
- *
- * 目前一条：
- *   · dsh-repeat-tool-reminder —— 上游自带的「原地打转提示」。挂在 `tools/post-execute`，
- *     同一个工具用完全相同的参数连续调用达到阈值（默认 3 / 5 / 8 次）时，往上下文里
- *     注入一条提示（首轮一句话，之后点名工具、连重次数与参数摘要），要求模型换做法或
- *     据已有证据收尾。它**从不结束回合**（契约由 pnpm check:profile 钉住）—— 这正是
- *     我们撤掉自研 dsh-runaway-guard 的理由：那个插件返回 reject 掐轮，把用户正常的一两
- *     百步长任务也打断成「必须再说一句继续」。63 轮实测：按步数/花费设阈值切不开
- *     「重活儿」与「打转」（正常轮次中位 25 步、P99 239 步），而「同一调用原样连重」
- *     误伤率为零（真实最长连续值 = 1）。
+ * 纯净版：不启用任何&quot;内核自带但默认不挂&quot;的能力 bundle。
+ * 主线在这里挂 @deepseek-ai/dsh-repeat-tool-reminder（同一工具调用原样连重时注入提示）。
+ * 它本质仍是插件式拦截，会改变交互行为，留在裸底里会污染&quot;问题是不是插件引起&quot;的对比结论，故本分支留空。
  */
-const KERNEL_CAPABILITIES = [
-  {
-    id: 'repeat-tool-reminder',
-    pkg: '@deepseek-ai/dsh-repeat-tool-reminder',
-    comment: '# repeat-tool-reminder：同一工具调用原样连重 3/5/8 次时注入提示（只提示，不结束回合）。',
-  },
-]
+export const KERNEL_CAPABILITIES = []
+
 
 /** LJANX 托管补丁区的起止标记：每次启动按平台/环境重写，能把历史上写坏的内容自动纠正。 */
 const MANAGED_BEGIN = '# >>> LJANX 托管区：启动时自动重写，请勿手工编辑 >>>'
@@ -349,8 +329,16 @@ export class ServerManager {
         cleanedBundles.push(b)
         continue
       }
+      // 用户在应用内自装的插件记在 dependencies 里，默认应当保留 —— 但**前提是它真的装着**。
+      // 只凭 dependencies 就保留是黑屏陷阱：内核解析不到任何一个 bundle 行会直接中止
+      // web 壳启动（`cannot resolve profile bundle …`）。实测会踩到的情形：换安装包时旧的
+      // 解析链接失效、插件安装中断、或发行版改版后不再随包带某个插件。
       if (userDeps.includes(b)) {
-        cleanedBundles.push(b)
+        if (this.profileBundleResolvable(profileNodeModules, b)) {
+          cleanedBundles.push(b)
+        } else {
+          console.log(`[ServerManager] bundles 里的 ${b} 记在 dependencies 但实际未安装，剔除该行（留着会让内核起不来）`)
+        }
         continue
       }
       if (available.includes(b)) {
@@ -518,6 +506,18 @@ export class ServerManager {
         existsSync(join(root, ...pkg.split('/'), 'package.json')),
       ),
     )
+  }
+
+  /**
+   * bundles 里的某个包名此刻能不能被内核解析到。
+   * 查两处：profile 自己的 node_modules（pnpm 布局下它通常是指向 .pnpm 的软链，
+   * existsSync 会跟着走），以及上一级的 profiles/node_modules（内核 module fallback 农场）。
+   */
+  profileBundleResolvable(profileNodeModules, name) {
+    const parts = name.split('/')
+    if (existsSync(join(profileNodeModules, ...parts, 'package.json'))) return true
+    const farm = join(dirname(profileNodeModules), 'node_modules')
+    return existsSync(join(farm, ...parts, 'package.json'))
   }
 
   /** 内核自带包可能住的几个 node_modules 根（安装版在 resources 下，开发态在仓库里）。 */

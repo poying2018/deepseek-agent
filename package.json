@@ -1,6 +1,6 @@
 {
   "name": "ljanx",
-  "version": "1.4.3",
+  "version": "1.4.3-vanilla.1",
   "type": "module",
   "description": "DeepSeek Agent (开箱即用 DeepSeek Harness 桌面客户端，内置创作者工作台与精选插件)",
   "main": "src/main/index.js",
@@ -12,7 +12,6 @@
     "check:picker": "node scripts/check-picker-patch.mjs",
     "check:plugins": "node scripts/check-plugin-peers.mjs",
     "check:undo": "node scripts/check-undo-store.mjs",
-    "check:archive": "node scripts/check-archive-manager.mjs",
     "check:patches": "node scripts/check-patch-table.mjs",
     "check:profile": "node scripts/check-profile-prune.mjs",
     "check:composer": "node scripts/check-composer-guard.cjs",

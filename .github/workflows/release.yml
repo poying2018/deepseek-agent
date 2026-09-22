@@ -2,6 +2,7 @@
 # 公开仓库的 Actions 分钟数免费；插件源码按 plugins.manifest.yaml 从 PUBLIC 仓库
 # clone 固定 ref，构建输入完全公开、可复现，不需要任何 secret。
 name: release
+# 纯净版（vanilla 分支）：产物一律标 --prerelease，不抢主线 release 的 Latest 标记。
 
 on:
   push:
@@ -104,7 +105,7 @@ jobs:
           if [ -f "RELEASE_NOTES_${{ github.ref_name }}.md" ]; then
             NOTES_ARG="--notes-file RELEASE_NOTES_${{ github.ref_name }}.md"
           fi
-          gh release create "${{ github.ref_name }}" \
+          gh release create "${{ github.ref_name }}" --prerelease \
             --title "🚀 DeepSeek Agent ${{ github.ref_name }}" \
             $NOTES_ARG \
             --draft=false 2>/dev/null || true
@@ -120,7 +121,7 @@ jobs:
           if [ -f "RELEASE_NOTES_${{ github.ref_name }}.md" ]; then
             NOTES_ARG="--notes-file RELEASE_NOTES_${{ github.ref_name }}.md"
           fi
-          gh release create "${{ github.ref_name }}" \
+          gh release create "${{ github.ref_name }}" --prerelease \
             --title "🚀 DeepSeek Agent ${{ github.ref_name }}" \
             $NOTES_ARG \
             --draft=false 2>/dev/null || true
