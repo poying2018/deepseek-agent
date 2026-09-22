@@ -80,6 +80,17 @@ window.__ModuleLoader__.load({
       '.duc-action-primary:hover:not(:disabled){filter:brightness(1.06)}',
       '.duc-link{appearance:none;border:none;background:transparent;padding:0;color:var(--dsw-alias-brand-primary);font:inherit;font-size:13px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}',
       '.duc-right{margin-left:auto}',
+      // 更新轨道开关（正式版 / 纯净版）与跨轨引导块
+      '.duc-tracks{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}',
+      '.duc-track-row{display:flex;gap:6px;flex-wrap:wrap}',
+      '.duc-track{appearance:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}',
+      '.duc-track:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.duc-track:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-bg-layer-2),0 0 0 4px var(--dsw-alias-brand-primary)}',
+      '.duc-track.is-on{border-color:transparent;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-on-brand, #fff)}',
+      '.duc-track-flag{font-size:11px;opacity:.8}',
+      '.duc-track-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}',
+      '.duc-cross{padding:10px 12px;border-radius:12px;border:1px solid var(--dsw-alias-state-warning-border, var(--dsw-alias-border-l2));background:var(--dsw-alias-state-warning-subtle, rgba(255,155,0,.10));color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px;display:flex;flex-direction:column;gap:6px}',
+      '.duc-cross b{font-weight:600}',
       '@keyframes ducSpin{to{transform:rotate(360deg)}}',
       '@media (prefers-reduced-motion: reduce){.duc-btn,.duc-action,.duc-bar-fill{transition:none}.duc-btn.is-busy svg{animation:none}}',
       // 设置中心侧边栏滚动修复：当插件较多时保证侧边栏可垂直滚动且首部标题不移位
@@ -152,6 +163,18 @@ window.__ModuleLoader__.load({
         dRuntime: '运行时',
         dLocation: '安装位置',
         dData: '数据目录',
+        trackLabel: '更新轨道',
+        trackStable: '正式版',
+        trackVanilla: '纯净版',
+        trackInstalled: '当前',
+        trackHint: '正式版自带全套自研与社区插件；纯净版只有官方内核本体（外加这个更新面板）。两条轨的包共用同一个应用标识。',
+        crossTitle: (from, to, v) => `这是换轨道，不是升级：当前装的是${from}，你选的是${to}${v ? `（该轨道最新 ${v}）` : ''}。`,
+        crossBody: '两条轨不能互相覆盖安装 —— 版本号上 -vanilla.N 比正式版更低，直接装过去是降级；而且数据目录会原样被另一条轨沿用。请先卸载当前版本，再从发布页下载目标轨道的安装包。',
+        noReleaseForTrack: '这条轨道还没有发布过任何版本。',
+        openUninstall: '打开系统卸载入口',
+        uninstallOpened: '已打开系统的应用管理界面，请在列表里卸载当前版本后再安装。',
+        uninstallFailed: '无法自动打开系统的应用管理界面，请手动到「设置 → 应用」里卸载当前版本。',
+        dTrack: '更新轨道',
       },
       en: {
         trigger: 'Check for updates',
@@ -186,6 +209,18 @@ window.__ModuleLoader__.load({
         dRuntime: 'Runtime',
         dLocation: 'Install location',
         dData: 'Data directory',
+        trackLabel: 'Update channel',
+        trackStable: 'Stable',
+        trackVanilla: 'Vanilla',
+        trackInstalled: 'installed',
+        trackHint: 'Stable ships the full plugin set; vanilla is the bare official kernel (plus this updater panel). Both builds share one app identity.',
+        crossTitle: (from, to, v) => `This is a channel switch, not an update: you are on ${from}, you picked ${to}${v ? ` (latest ${v})` : ''}.`,
+        crossBody: 'The two channels must not overwrite each other — a -vanilla.N version sorts below the stable one, so installing across is a downgrade, and the data directory would carry over. Uninstall the current app first, then install the target channel package from the releases page.',
+        noReleaseForTrack: 'No release has been published on that channel yet.',
+        openUninstall: 'Open uninstall settings',
+        uninstallOpened: 'System app settings opened — uninstall the current version there, then install.',
+        uninstallFailed: 'Could not open the system app settings automatically. Uninstall the current version from Settings → Apps first.',
+        dTrack: 'Update channel',
       },
     }
 
@@ -224,6 +259,34 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * 更新轨道开关。
+     *
+     * 默认且唯一自动选中的是**本机装的那条轨** —— 这是 v1.4.3 串台 bug 的教训：
+     * 纯净版用户点一下「检查更新」就被推 260MB 的全插件包。要查另一条轨必须用户
+     * 自己点，且主进程返回的结果里不会有 asset（见 src/main/update-tracks.js）。
+     */
+    function TrackPicker({ t, installedTrack, selected, onPick }) {
+      const option = (id, label) => h('button', {
+        type: 'button',
+        key: id,
+        className: 'duc-track' + (selected === id ? ' is-on' : ''),
+        'aria-pressed': selected === id ? 'true' : 'false',
+        onClick: () => { if (selected !== id) onPick(id) },
+      },
+        label,
+        installedTrack === id ? h('span', { className: 'duc-track-flag' }, `· ${t.trackInstalled}`) : null,
+      )
+      return h('div', { className: 'duc-tracks' },
+        h('p', { className: 'duc-label' }, t.trackLabel),
+        h('div', { className: 'duc-track-row' },
+          option('stable', t.trackStable),
+          option('vanilla', t.trackVanilla),
+        ),
+        h('p', { className: 'duc-track-hint' }, t.trackHint),
+      )
+    }
+
     function Progress({ percent, received, total }) {
       return h('div', null,
         h('div', { className: 'duc-bar' },
@@ -256,6 +319,7 @@ window.__ModuleLoader__.load({
         [t.dApp, d.appVersion ? `v${String(d.appVersion).replace(/^v/i, '')}` : '—'],
         [t.dCore, d.coreVersion ? `v${String(d.coreVersion).replace(/^v/i, '')}` : '—'],
         [t.dMode, d.runtimeMode === 'portable' ? t.modePortable : t.modeInstalled],
+        [t.dTrack, (info && info.track) === 'vanilla' ? t.trackVanilla : t.trackStable],
         [t.dPlatform, prettyPlatform(d.platform)],
         [t.dRuntime, runtime || '—'],
         [t.dLocation, d.exePath || '—'],
@@ -280,6 +344,9 @@ window.__ModuleLoader__.load({
       const [filePath, setFilePath] = React.useState('')
       const [error, setError] = React.useState('')
       const [notice, setNotice] = React.useState('')
+      // 用户主动选的轨道；空 = 跟随本机（installedTrack）。不持久化：换轨是一次
+      // 需要当面确认后果的动作，下次打开面板必须回到安全的默认值。
+      const [pickedTrack, setPickedTrack] = React.useState('')
 
       React.useEffect(() => {
         if (!api) return undefined
@@ -289,28 +356,41 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!api) return undefined
         let alive = true
-        api.update.info().then((v) => { if (alive && v && v.ok) setInfo(v) }).catch(() => {})
+        // 失败也要落地一个 info：轨道默认落在正式轨（保守侧），且让自动检查照常触发
+        api.update.info().then((v) => { if (alive) setInfo(v && v.ok ? v : { ok: false }) }).catch(() => { if (alive) setInfo({ ok: false }) })
         return () => { alive = false }
       }, [api])
 
-      const runCheck = React.useCallback(async () => {
+      const installedTrack = (info && info.track) === 'vanilla' ? 'vanilla' : 'stable'
+      const track = pickedTrack || installedTrack
+
+      const runCheck = React.useCallback(async (requested) => {
         if (!api) return
+        const wanted = requested || installedTrack
         setPhase('checking'); setError(''); setNotice('')
         try {
-          const v = await api.update.check()
+          const v = await api.update.check(wanted)
           if (!v || v.ok !== true) {
             setPhase('error'); setError((v && v.error) || t.failed); onAvailability(false); return
           }
           setResult(v)
           if (v.status === 'available') { setPhase('available'); onAvailability(true) }
-          else if (v.status === 'no-release') { setPhase('no-release'); onAvailability(false) }
+          // 跨轨道：单独一个阶段 —— 它既不是「有更新可装」也不是「已是最新」，
+          // 混进后两者的话，用户会看到一句「已是最新」而完全不知道另一条轨存在。
+          else if (v.status === 'cross-track') { setPhase('cross'); onAvailability(false) }
+          else if (v.status === 'no-release' || v.status === 'no-release-for-track') { setPhase('no-release'); onAvailability(false) }
           else { setPhase('latest'); onAvailability(false) }
         } catch (err) {
           setPhase('error'); setError(err instanceof Error ? err.message : t.failed); onAvailability(false)
         }
-      }, [api, t, onAvailability])
+      }, [api, t, installedTrack, onAvailability])
 
-      React.useEffect(() => { if (phase === 'idle' && api) void runCheck() }, [phase, api, runCheck])
+      React.useEffect(() => { if (phase === 'idle' && api && info) void runCheck(installedTrack) }, [phase, api, info, installedTrack, runCheck])
+
+      const switchTrack = React.useCallback((next) => {
+        setPickedTrack(next); void runCheck(next)
+      }, [runCheck])
+
 
       const runDownload = React.useCallback(async () => {
         if (!api || !result || !result.asset) return
@@ -331,22 +411,40 @@ window.__ModuleLoader__.load({
         setNotice(t.installHint)
       }, [api, filePath, t])
 
+      const runUninstall = React.useCallback(async () => {
+        if (!api) return
+        setError('')
+        const v = await api.update.openUninstall()
+        if (!v || v.ok !== true) { setError((v && v.error) || t.uninstallFailed); return }
+        setNotice(t.uninstallOpened)
+      }, [api, t])
+
       const state = (() => {
         if (phase === 'checking') return h('p', { className: 'duc-state is-latest' }, t.checking)
         if (phase === 'latest') return h('p', { className: 'duc-state is-latest' }, t.upToDate)
-        if (phase === 'no-release') return h('p', { className: 'duc-state is-latest' }, t.noRelease)
+        if (phase === 'no-release') return h('p', { className: 'duc-state is-latest' },
+          result && result.status === 'no-release-for-track' ? t.noReleaseForTrack : t.noRelease)
         if (phase === 'available' || phase === 'downloading' || phase === 'downloaded') {
           return h('p', { className: 'duc-state is-available' }, t.available((result && result.latestVersion) || ''))
+        }
+        if (phase === 'cross') {
+          const nameOf = (id) => (id === 'vanilla' ? t.trackVanilla : t.trackStable)
+          return h('div', { className: 'duc-cross' },
+            h('p', { className: 'duc-state is-available', style: { margin: 0 } },
+              t.crossTitle(nameOf(result && result.installedTrack), nameOf(result && result.track), (result && result.latestVersion) || '')),
+            h('p', { style: { margin: 0 } }, t.crossBody),
+          )
         }
         return null
       })()
 
       return h('div', { className: 'duc-body' },
         h('p', { className: 'duc-state is-latest' }, t.sourceApp),
+        h(TrackPicker, { t, installedTrack, selected: track, onPick: switchTrack }),
         h(Versions, { t, current: info && info.currentVersion, latest: result && result.latestVersion }),
         state,
 
-        (phase === 'available' || phase === 'downloading' || phase === 'downloaded')
+        (phase === 'available' || phase === 'downloading' || phase === 'downloaded' || phase === 'cross')
           ? h('div', null,
             h('p', { className: 'duc-label' }, t.notes),
             h('pre', { className: 'duc-notes' }, (result && result.notes && result.notes.trim()) || t.noNotes),
@@ -385,6 +483,14 @@ window.__ModuleLoader__.load({
               type: 'button', className: 'duc-action duc-action-primary',
               onClick: () => { void runInstall() },
             }, t.install)
+            : null,
+
+          // 跨轨道：只有「先去卸载」和「打开发布页」，没有任何安装/下载按钮
+          phase === 'cross'
+            ? h('button', {
+              type: 'button', className: 'duc-action duc-action-primary',
+              onClick: () => { void runUninstall() },
+            }, t.openUninstall)
             : null,
 
           (phase === 'latest' || phase === 'no-release' || phase === 'error')

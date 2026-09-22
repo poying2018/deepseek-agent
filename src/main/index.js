@@ -6,10 +6,12 @@ import { findFreePort } from './port-finder.js'
 import { ServerManager, augmentGlobalPath } from './server-manager.js'
 import {
   checkForUpdates,
+  detectTrack,
   downloadUpdate,
   installUpdate,
   listDownloaded,
   openReleasesPage,
+  openUninstallSettings,
   RELEASES_PAGE,
 } from './updater.js'
 
@@ -303,6 +305,8 @@ function readBundledCoreVersion() {
 ipcMain.handle('ljanx:update-info', async () => ({
   ok: true,
   currentVersion: app.getVersion(),
+  // 本机装的是哪条轨（正式版 / 纯净版）—— 面板顶部的轨道开关以此为准
+  track: detectTrack(app.getVersion()),
   releasesPage: RELEASES_PAGE,
   downloaded: await listDownloaded(),
   platform: process.platform,
@@ -321,9 +325,14 @@ ipcMain.handle('ljanx:update-info', async () => ({
   },
 }))
 
-ipcMain.handle('ljanx:update-check', async () => {
+ipcMain.handle('ljanx:update-check', async (_event, payload) => {
   try {
-    return await checkForUpdates({ currentVersion: app.getVersion() })
+    // 面板可以主动查另一条轨（用户点了「切换到纯净版 / 正式版轨道」）。
+    // 缺省 = 本机那条轨 —— 绝不因为「另一条轨版本号更高」就把跨轨包推给用户。
+    const wanted = payload && (payload.track === 'vanilla' || payload.track === 'stable')
+      ? payload.track
+      : undefined
+    return await checkForUpdates({ currentVersion: app.getVersion(), track: wanted })
   } catch (error) {
     updateLogger('check failed', error)
     return { ok: false, error: `检查更新失败：${error instanceof Error ? error.message : String(error)}` }
@@ -360,6 +369,23 @@ ipcMain.handle('ljanx:update-open-releases', async () => {
   } catch (error) {
     updateLogger('open releases failed', error)
     return { ok: false, error: '无法打开发布页。' }
+  }
+})
+
+/**
+ * 跨轨道（正式版 ↔ 纯净版）时的「先卸载旧版本」入口。
+ *
+ * 为什么跨轨不给「立即安装」：`1.4.3-vanilla.1` 按 semver 比 `1.4.3` 是降级，
+ * 且两条轨共用同一个 appId 与产品名、从包上看不出彼此 —— 混着装只会让用户在
+ * 「应用和功能」里看到一个说不清自己是谁的安装。所以这条路只把用户送到系统
+ * 的卸载界面；卸载这一步由用户自己点，应用不代做不可逆动作。
+ */
+ipcMain.handle('ljanx:update-open-uninstall', async () => {
+  try {
+    return await openUninstallSettings()
+  } catch (error) {
+    updateLogger('open uninstall failed', error)
+    return { ok: false, error: '无法打开系统的应用管理界面。' }
   }
 })
 

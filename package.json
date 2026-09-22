@@ -17,6 +17,7 @@
     "check:profile": "node scripts/check-profile-prune.mjs",
     "check:composer": "node scripts/check-composer-guard.cjs",
     "check:kernelspeed": "node scripts/check-client-modules-equiv.mjs",
+    "check:updater": "node scripts/check-updater-tracks.mjs",
     "check:startup": "node scripts/check-startup-readiness.mjs",
     "check:dist": "node scripts/verify-dist-compose.mjs",
     "perf:kernel-boot": "node scripts/perf-kernel-boot.mjs",
